@@ -66,8 +66,26 @@ Each script generates train/eval/test splits in `~/cap_rlvr/data_tasks/`:
 - **Records**: ~7 million legal case documents
 - **Download Method**: Use `downloads/cli_download.py` for robust acquisition with resume capability
 
+## Frozen Embeddings Step
+After data prep completes, build FAISS index for retrieval task:
+
+```bash
+cd ~/cap_rlvr/scripts
+source ../cap_env/bin/activate
+
+# Build FAISS index for retrieval evaluation
+python build_faiss.py --in ../data_tasks/retrieval/train.jsonl --out ../data_tasks/retrieval/embeddings.faiss --test
+
+# This creates:
+# - embeddings.faiss (FAISS index file)
+# - embeddings.metadata.json (case ID mappings)
+```
+
+**Purpose**: Creates frozen vector embeddings for efficient similarity search during retrieval task evaluation. Uses sentence-transformers to encode legal case texts and builds FAISS index for fast nearest-neighbor search.
+
 ## Next Steps After Data Prep
 1. Verify all 5 task types generated successfully
-2. Run reward function tests on sample outputs
-3. Begin SFT warm-start training on Qwen-3-14B
-4. Implement GRPO training pipeline with process supervision
+2. Build FAISS index for retrieval task (`build_faiss.py`)
+3. Run reward function tests on sample outputs
+4. Begin SFT warm-start training on Qwen-3-14B
+5. Implement GRPO training pipeline with process supervision
