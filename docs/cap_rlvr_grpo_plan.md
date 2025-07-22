@@ -268,20 +268,76 @@ python scripts/build_faiss.py --in data_tasks/retrieval/train.jsonl --out data_t
 
 ---
 
-## 6. Reward scripts (example: Bluebook)
+## 6. Reward Functions (Complete Implementation)
+
+All reward functions have been implemented with comprehensive scoring mechanisms:
+
+### 6.1 Available Reward Functions
+
+| Task | File | Description | Reward Components |
+|------|------|-------------|-------------------|
+| Holding Selection | `reward_holding.py` | Multiple choice evaluation | Binary: 1.0 for correct choice, 0.0 for incorrect |
+| Bluebook Citation | `reward_bluebook.py` | Citation format accuracy | Component-wise (80%) + format validation (20%) |
+| IRAC Summary | `reward_irac.py` | Legal case summarization | Structure (40%) + content (30%) + length (15%) + legal language (15%) |
+| Case Retrieval | `reward_retrieval.py` | Similar case finding | FAISS similarity + quantity bonus |
+| Relationship | `reward_entail.py` | Case relationship classification | Exact match (60%) + context consistency (25%) + quality (15%) |
+
+### 6.2 Unified Interface
 
 ```python
-import re
-PAT=r"(\d+)\s+U\.S\.\s+(\d+)\s+\((\d{4})\)"
+from rewards import UnifiedRewardFunction
 
-def reward(sample,out):
-    m=re.search(PAT,out)
-    if not m: return 0.0
-    v,p,y=m.groups(); md=sample['metadata']
-    return 0.25*(v==md['volume'])+0.25*(p==md['page'])+0.25*("U.S." in out)+0.25*(y==md['year'])
+# Initialize with optional FAISS index for retrieval
+reward_fn = UnifiedRewardFunction(faiss_index_path='data_tasks/retrieval/embeddings.faiss')
+
+# Auto-detect task type and compute reward
+reward = reward_fn.reward(sample, model_output)
+
+# Or specify task explicitly
+reward = reward_fn.reward(sample, model_output, task_type='bluebook')
 ```
 
-Add one file per task.
+### 6.3 Individual Reward Function Usage
+
+```python
+# Holding Selection (Multiple Choice)
+from reward_holding import HoldingRewardFunction
+holding_reward = HoldingRewardFunction()
+# Returns 1.0 for correct choice, 0.0 for incorrect
+
+# Bluebook Citation (Fill-in-the-blank)
+from reward_bluebook import BluebookRewardFunction
+bluebook_reward = BluebookRewardFunction()
+# Component scoring: volume, page, year, court, format validation
+
+# IRAC Summarization (Structured text generation)
+from reward_irac import IRACRewardFunction
+irac_reward = IRACRewardFunction()
+# Multi-component: IRAC structure detection + content quality + length + legal language
+
+# Case Relationship Classification
+from reward_entail import EntailmentRewardFunction
+entail_reward = EntailmentRewardFunction()
+# Classification accuracy + context consistency + reasoning quality
+```
+
+### 6.4 Reward Function Features
+
+**Robust Response Parsing:**
+- Multiple response formats (letter choices, numbers, text similarity)
+- Fuzzy matching for classification tasks
+- Citation component extraction with validation
+
+**Quality Assessment:**
+- Legal language usage evaluation
+- Context consistency checking
+- Response length and structure validation
+- Partial credit for reasonable errors
+
+**Process Supervision Ready:**
+- All rewards return 0.0-1.0 float values
+- Supports intermediate step evaluation
+- Compatible with GRPO group ranking requirements
 
 ---
 
@@ -355,8 +411,10 @@ def generate_grpo_dataset(task_file, model_path, num_candidates=4):
                 )
                 candidates.append(tokenizer.decode(response[0], skip_special_tokens=True))
             
-            # Score each candidate using our verifiable reward function
-            scores = [reward_bluebook.reward(sample, cand) for cand in candidates]
+            # Score each candidate using our unified reward function
+            from rewards import UnifiedRewardFunction
+            reward_fn = UnifiedRewardFunction()
+            scores = [reward_fn.reward(sample, cand) for cand in candidates]
             
             grpo_data.append({
                 'query': query,
@@ -381,7 +439,7 @@ for task in ['bluebook', 'holding', 'summarise', 'retrieval', 'entail']:
 from trl import AutoModelForCausalLMWithValueHead, GRPOTrainer, GRPOConfig
 from transformers import AutoTokenizer
 import json, numpy as np
-import reward_bluebook
+from rewards import UnifiedRewardFunction
 
 tok = AutoTokenizer.from_pretrained('models/sft', padding_side='left')
 mdl = AutoModelForCausalLMWithValueHead.from_pretrained('models/sft', load_in_4bit=True,
@@ -419,10 +477,12 @@ for epoch in range(grpo_config.num_train_epochs):
         queries = [item['query'] for item in batch]
         response_groups = [item['responses'] for item in batch]
         
-        # Score each response using our verifiable rewards
+        # Score each response using our unified reward system
+        from rewards import UnifiedRewardFunction
+        reward_fn = UnifiedRewardFunction()
         rewards = []
         for item, responses in zip(batch, response_groups):
-            query_rewards = [reward_bluebook.reward(item, resp) for resp in responses]
+            query_rewards = [reward_fn.reward(item, resp) for resp in responses]
             rewards.append(query_rewards)
         
         # GRPO step: learn from relative rankings within each group
@@ -539,9 +599,9 @@ Quantise AWQ 4-bit then run via vLLM or TGI.
 | --- | ------------------------------------------- |
 | 1   | CAP downloaded, scripts cloned              |
 | 2   | Micro-tasks JSONL ready                     |
-| 3   | Frozen embeddings + reward tests pass       |
+| 3   | **✅ COMPLETE: Reward functions + tests pass** |
 | 4   | Warm-start SFT complete                     |
-| 5   | GRPO stage0 done (Bluebook ≥90%)            |
+| 5   | GRPO stage0 done (All tasks ≥80% reward)   |
 | 6   | Curriculum complete, eval gate passes       |
 | 7   | Merge, quantise, HF release + vLLM endpoint |
 

@@ -2,6 +2,12 @@
 
 This file contains important context and instructions for working with this CAP RLVR project.
 
+## Remote System Access
+SSH command to connect to the Vast.ai remote CPU instance:
+```bash
+ssh vast-cap
+```
+
 ## Data Preparation Scripts - Remote Execution Instructions
 
 ### Critical Setup
