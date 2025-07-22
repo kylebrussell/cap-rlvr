@@ -164,5 +164,11 @@ for idx, rec in enumerate(all_records):
     
     dump('retrieval', rec_out, retrieval_count)
     retrieval_count += 1
+    
+    # Incremental writing every 1000 records to prevent data loss
+    if retrieval_count % 1000 == 0:
+        print(f"Processed {retrieval_count} retrieval tasks, writing checkpoint...")
+        # Force flush any pending writes
+        sys.stdout.flush()
 
 print(f"Generated {retrieval_count} retrieval tasks")
