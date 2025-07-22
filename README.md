@@ -24,7 +24,9 @@ cap-rlvr/
 │   ├── format_for_sft.py       # ✅ Format task data for SFT training (TRL-compatible)
 │   ├── migrate_to_lambda.py    # ✅ Automated Vast.ai -> Lambda Labs migration
 │   ├── prep_grpo_dataset.py    # ✅ Generate GRPO training datasets with scored responses
-│   ├── train_grpo.py           # ✅ NEW: Complete GRPO training implementation
+│   ├── train_grpo.py           # ✅ Complete GRPO training implementation with eval-only mode
+│   ├── validate_stage_progression.py # ✅ NEW: Validate reward thresholds for stage progression
+│   ├── orchestrate_grpo_training.py  # ✅ NEW: Automated multi-stage training pipeline
 │   ├── reward_holding.py       # Reward function for holding selection
 │   ├── reward_bluebook.py      # Reward function for citation completion
 │   ├── reward_irac.py          # Reward function for IRAC summarization
@@ -267,6 +269,53 @@ python scripts/train_grpo.py --task holding --model_path models/sft \
 - **Memory Optimized**: Conservative batch sizes and gradient accumulation for large models
 - **Legal-Specific Metrics**: Custom callbacks and logging for legal reasoning evaluation
 - **TRL Integration**: Modern TRL library compatibility with proper GRPO implementation
+- **Evaluation-Only Mode**: Stage progression validation with `--eval_only` flag
+
+## Multi-Stage Training Automation
+
+The project includes comprehensive automation for the iterative GRPO training pipeline:
+
+### Manual Stage Management
+```bash
+# Generate unified multi-task datasets
+python scripts/prep_grpo_dataset.py --task all --unified_output --model_path models/sft
+
+# Validate stage progression
+python scripts/validate_stage_progression.py --stage 0 --check_all_tasks --model_path models/grpo/
+
+# Evaluation-only mode for testing
+python scripts/train_grpo.py --eval_only --task all --model_path models/grpo/current
+```
+
+### Fully Automated Pipeline
+```bash
+# Complete 4-stage automated training from SFT to production
+python scripts/orchestrate_grpo_training.py --sft_model_path models/sft --start_stage 0
+
+# Resume from specific stage
+python scripts/orchestrate_grpo_training.py --base_model_path models/grpo/stage1_complete --start_stage 2
+
+# Preview execution plan
+python scripts/orchestrate_grpo_training.py --sft_model_path models/sft --dry_run
+```
+
+**Automation Features:**
+- **4-Stage Pipeline**: Individual mastery → Multi-task integration → Curriculum refinement → Production optimization
+- **Auto-Validation**: Reward thresholds checked automatically between stages
+- **Smart Retry Logic**: Failed stages retry with adjusted parameters (max 2 retries per stage)
+- **Multi-Hour Training Support**: Enhanced monitoring for long-duration runs (up to 6 hours per stage)
+- **Graceful Shutdown**: Signal handling for clean interruption and resumption
+- **Progress Persistence**: Training state saved to disk for crash recovery
+- **Resource Monitoring**: Memory and system resource tracking during execution
+- **Heartbeat Logging**: Progress updates every 10 minutes during long runs
+- **Comprehensive Logging**: Detailed progress tracking and error reporting
+- **Flexible Resumption**: Start from any stage with appropriate base model
+
+**Stage Progression Thresholds:**
+- **Stage 0**: ≥80% reward per individual task
+- **Stage 1**: ≥75% reward across all tasks simultaneously
+- **Stage 2**: ≥85% reward with variance <0.15
+- **Stage 3**: ≥90% reward with variance <0.10
 
 ## Dataset
 

@@ -286,6 +286,8 @@ def main():
                        help='Root directory for GRPO output (default: ../data_grpo)')
     parser.add_argument('--mock_mode', action='store_true',
                        help='Use mock responses instead of actual model generation')
+    parser.add_argument('--unified_output', action='store_true',
+                       help='Create unified multi-task dataset for Stage 1+ training')
     
     args = parser.parse_args()
     
@@ -317,6 +319,8 @@ def main():
         tasks = [args.task]
     
     # Process each task
+    all_grpo_samples = []  # For unified dataset
+    
     for task in tasks:
         logger.info(f"Processing task: {task}")
         
@@ -337,9 +341,34 @@ def main():
             logger.warning(f"No GRPO samples generated for task: {task}")
             continue
         
-        # Save GRPO dataset
+        # Add task identifier to samples for unified dataset
+        if args.unified_output or args.task == 'all':
+            for sample in grpo_samples:
+                sample['task_type'] = task
+            all_grpo_samples.extend(grpo_samples)
+        
+        # Save individual task dataset (always)
         output_file = output_root / task / 'train_grpo.json'
         generator.save_grpo_dataset(grpo_samples, output_file)
+    
+    # Create unified multi-task dataset if requested
+    if (args.unified_output or args.task == 'all') and all_grpo_samples:
+        logger.info(f"Creating unified multi-task dataset with {len(all_grpo_samples)} samples")
+        
+        # Shuffle samples for better task mixing
+        import random
+        random.shuffle(all_grpo_samples)
+        
+        # Save unified dataset
+        unified_output_file = output_root / 'unified' / 'train_grpo.json'
+        generator.save_grpo_dataset(all_grpo_samples, unified_output_file)
+        
+        # Create balanced evaluation dataset (smaller subset)
+        eval_samples = all_grpo_samples[:min(len(all_grpo_samples) // 10, 1000)]
+        eval_output_file = output_root / 'unified' / 'eval_grpo.json'
+        generator.save_grpo_dataset(eval_samples, eval_output_file)
+        
+        logger.info(f"Unified datasets created: {len(all_grpo_samples)} train, {len(eval_samples)} eval")
     
     logger.info("GRPO dataset generation completed")
 

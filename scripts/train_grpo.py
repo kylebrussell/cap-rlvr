@@ -275,18 +275,20 @@ class GRPOLegalTrainer:
         self, 
         grpo_dataset_path: str,
         eval_dataset_path: str = None,
+        eval_only: bool = False,
         **training_kwargs
     ) -> GRPOTrainer:
         """
-        Execute GRPO training.
+        Execute GRPO training or evaluation.
         
         Args:
             grpo_dataset_path: Path to GRPO training dataset JSON file
             eval_dataset_path: Optional path to evaluation dataset
+            eval_only: If True, run evaluation only without training
             **training_kwargs: Additional training configuration parameters
             
         Returns:
-            Trained GRPOTrainer instance
+            GRPOTrainer instance or evaluation results
         """
         if not TRL_AVAILABLE:
             raise ImportError("TRL library is required for GRPO training")
@@ -334,7 +336,31 @@ class GRPOLegalTrainer:
         # Add custom callbacks for legal-specific metrics
         self.add_legal_callbacks(trainer)
         
-        # Start training
+        # Run evaluation only or full training
+        if eval_only:
+            logger.info("Running evaluation only...")
+            try:
+                if eval_dataset is None:
+                    logger.warning("No evaluation dataset provided, using training dataset for evaluation")
+                    eval_dataset = train_dataset
+                
+                eval_results = trainer.evaluate(eval_dataset=eval_dataset)
+                logger.info("Evaluation completed successfully")
+                logger.info(f"Evaluation results: {eval_results}")
+                
+                # Return evaluation results
+                return {
+                    'eval_results': eval_results,
+                    'model_path': self.model_path,
+                    'task_name': self.task_name,
+                    'eval_dataset_size': len(eval_dataset)
+                }
+                
+            except Exception as e:
+                logger.error(f"Evaluation failed: {e}")
+                raise
+        
+        # Start full training
         logger.info("Beginning GRPO training...")
         try:
             training_result = trainer.train()
@@ -413,6 +439,8 @@ def main():
                        help='Train on multiple tasks (requires task=all)')
     parser.add_argument('--resume_from_checkpoint', default=None,
                        help='Path to checkpoint to resume training')
+    parser.add_argument('--eval_only', action='store_true',
+                       help='Run evaluation only without training')
     
     args = parser.parse_args()
     
@@ -453,14 +481,20 @@ def main():
     if args.resume_from_checkpoint:
         training_config['resume_from_checkpoint'] = args.resume_from_checkpoint
     
-    # Start training
+    # Start training or evaluation
     try:
-        grpo_trainer = trainer.train(
+        result = trainer.train(
             grpo_dataset_path=args.data_path,
             eval_dataset_path=args.eval_data_path,
+            eval_only=args.eval_only,
             **training_config
         )
-        logger.info("GRPO training completed successfully!")
+        
+        if args.eval_only:
+            logger.info("GRPO evaluation completed successfully!")
+            logger.info(f"Results: {result}")
+        else:
+            logger.info("GRPO training completed successfully!")
         
     except KeyboardInterrupt:
         logger.info("Training interrupted by user")

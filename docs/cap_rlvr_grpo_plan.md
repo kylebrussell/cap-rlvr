@@ -648,6 +648,147 @@ python prep_grpo_dataset.py --task all --model_path ../models/sft
 
 This creates the process supervision dataset required for GRPO's group ranking approach, with multiple scored responses per legal query.
 
+### Multi-Stage GRPO Training Strategy
+
+GRPO training follows a **multi-iteration curriculum** rather than single-pass training. This progressive approach ensures robust legal reasoning across all task types.
+
+#### Stage-Based Training Pipeline
+
+**Stage 0: Individual Task Mastery (Sequential)**
+- Train each legal task separately until proficiency threshold
+- Target: ≥80% reward score per task type
+- Duration: ~2-3 training runs per task (5-15 epochs total)
+- Purpose: Establish baseline competency in each legal reasoning domain
+
+```bash
+# Stage 0: Individual task training iterations
+python scripts/train_grpo.py --task bluebook --model_path models/sft \
+  --data_path data_grpo/bluebook/train_grpo.json --num_epochs 5
+
+python scripts/train_grpo.py --task holding --model_path models/grpo/bluebook_grpo \
+  --data_path data_grpo/holding/train_grpo.json --num_epochs 5
+
+python scripts/train_grpo.py --task summarise --model_path models/grpo/holding_grpo \
+  --data_path data_grpo/summarise/train_grpo.json --num_epochs 3
+
+# Continue for retrieval and entail tasks...
+```
+
+**Stage 1: Multi-Task Integration (Iterative)**
+- Combine high-performing task adapters for joint training
+- Target: Maintain >75% reward across all tasks simultaneously
+- Duration: 3-5 iterations with different task weightings
+- Purpose: Balance competency across legal reasoning types
+
+```bash
+# Stage 1: Multi-task integration iterations
+python scripts/train_grpo.py --task all --multi_task \
+  --model_path models/grpo/stage0_complete \
+  --data_path data_grpo/unified/train_grpo.json \
+  --num_epochs 3 --learning_rate 5e-6
+
+# Iteration 2: Adjust for weak tasks
+python scripts/train_grpo.py --task all --multi_task \
+  --model_path models/grpo/stage1_iter1 \
+  --data_path data_grpo/unified/train_grpo.json \
+  --resume_from_checkpoint models/grpo/stage1_iter1/checkpoint-1500
+```
+
+**Stage 2: Curriculum Refinement (Adaptive)**
+- Progressive difficulty increase within tasks
+- Error analysis and targeted improvement
+- Target: >85% reward with consistent performance
+- Duration: 2-4 adaptive iterations based on eval metrics
+
+```bash
+# Stage 2: Curriculum refinement with difficulty progression
+python scripts/train_grpo.py --task all --multi_task \
+  --model_path models/grpo/stage1_complete \
+  --data_path data_grpo/curriculum/hard_cases.json \
+  --beta 0.15 --learning_rate 3e-6
+```
+
+**Stage 3: Production Optimization (Final)**
+- Edge case handling and robustness testing
+- Hyperparameter fine-tuning for deployment
+- Target: >90% reward with low variance
+- Duration: 1-2 final polishing iterations
+
+#### Iteration Decision Framework
+
+**Continue Training If:**
+- Any task reward <80% (Stage 0)
+- Multi-task reward drops >5% from single-task performance (Stage 1)
+- High reward variance (std >0.2) across evaluation batches
+- Evaluation metrics show catastrophic forgetting
+
+**Progress to Next Stage If:**
+- All tasks meet reward thresholds for current stage
+- Evaluation metrics stable for 2+ checkpoints
+- No significant performance degradation on held-out test set
+
+#### Automated Training Orchestration
+
+**✅ COMPLETE**: Full automation support for multi-stage GRPO training has been implemented through comprehensive script enhancements.
+
+**Enhanced Scripts for Iterative Training:**
+
+| Script | Purpose | Key Features |
+|--------|---------|--------------|
+| `train_grpo.py` | Core training + evaluation | `--eval_only` mode for stage validation |
+| `validate_stage_progression.py` | Stage progression validation | Reward threshold checking, comprehensive reporting |
+| `prep_grpo_dataset.py` | Dataset preparation | `--unified_output` for multi-task datasets |
+| `orchestrate_grpo_training.py` | Full pipeline automation | 4-stage automated training with retry logic |
+
+**Manual Training Iteration Monitoring:**
+```bash
+# Check current performance across all tasks
+python scripts/train_grpo.py --task all --eval_only \
+  --model_path models/grpo/current \
+  --eval_data_path data_grpo/unified/eval_grpo.json
+
+# Resume training from best checkpoint if needed
+python scripts/train_grpo.py --task holding --model_path models/grpo/current \
+  --resume_from_checkpoint models/grpo/holding_grpo/checkpoint-2000 \
+  --num_epochs 2
+
+# Validate stage progression manually
+python scripts/validate_stage_progression.py --stage 0 --check_all_tasks \
+  --model_path models/grpo/ --output_report stage0_validation.txt
+```
+
+**Automated Pipeline Execution:**
+```bash
+# Full automated pipeline from SFT to production
+python scripts/orchestrate_grpo_training.py \
+  --sft_model_path models/sft \
+  --start_stage 0 \
+  --output_dir models/grpo
+
+# Resume from specific stage with existing model
+python scripts/orchestrate_grpo_training.py \
+  --base_model_path models/grpo/stage1_complete \
+  --start_stage 2 \
+  --output_dir models/grpo
+
+# Dry run to preview pipeline execution
+python scripts/orchestrate_grpo_training.py \
+  --sft_model_path models/sft \
+  --dry_run
+```
+
+**Multi-Task Dataset Generation:**
+```bash
+# Generate unified datasets for Stage 1+ training
+python scripts/prep_grpo_dataset.py --task all --unified_output \
+  --model_path models/sft --num_candidates 4
+
+# Creates:
+# - Individual task datasets: data_grpo/{task}/train_grpo.json
+# - Unified multi-task dataset: data_grpo/unified/train_grpo.json
+# - Evaluation dataset: data_grpo/unified/eval_grpo.json
+```
+
 ### GRPO Training Implementation
 
 **✅ COMPLETE**: A production-ready GRPO training script has been implemented.
@@ -900,20 +1041,68 @@ model.save_quantized('deploy/qwen_cap_rlvr_gptq')
 
 ---
 
-## 12. 7-day timeline
+## 12. Multi-Stage Training Timeline
 
-| Day | Deliverable                                 |
-| --- | ------------------------------------------- |
-| 1   | CAP downloaded, scripts cloned              |
-| 2   | Micro-tasks JSONL ready                     |
-| 3   | **✅ COMPLETE: Reward functions + tests pass** |
-| 3.5 | **✅ COMPLETE: Gym environments + integration** |
-| 3.8 | **✅ COMPLETE: SFT formatting + migration pipeline** |
-| 3.9 | **✅ COMPLETE: GRPO data prep script implemented** |
-| 4   | Warm-start SFT complete                     |
-| 5   | GRPO stage0 done (All tasks ≥80% reward)   |
-| 6   | Curriculum complete, eval gate passes       |
-| 7   | Merge, quantise, HF release + vLLM endpoint |
+### Initial Setup (Days 1-4)
+| Day | Deliverable                                 | Status |
+| --- | ------------------------------------------- | ------ |
+| 1   | CAP downloaded, scripts cloned              | ✅ |
+| 2   | Micro-tasks JSONL ready                     | ✅ |
+| 3   | **Reward functions + tests pass** | ✅ COMPLETE |
+| 3.5 | **Gym environments + integration** | ✅ COMPLETE |
+| 3.8 | **SFT formatting + migration pipeline** | ✅ COMPLETE |
+| 3.9 | **GRPO data prep + training scripts** | ✅ COMPLETE |
+| 4   | Warm-start SFT complete                     | 🔄 In Progress |
+
+### Multi-Stage GRPO Training (Days 5-10)
+
+**Stage 0: Individual Task Mastery (Days 5-7)**
+| Task | Target | Iterations | Duration | Status |
+|------|--------|------------|----------|--------|
+| Bluebook Citations | ≥80% reward | 2-3 runs | 0.5 days | Pending |
+| Holding Selection | ≥80% reward | 2-3 runs | 0.5 days | Pending |
+| IRAC Summaries | ≥80% reward | 3-4 runs | 1.0 days | Pending |
+| Case Retrieval | ≥80% reward | 2-3 runs | 0.5 days | Pending |
+| Entailment Classification | ≥80% reward | 2-3 runs | 0.5 days | Pending |
+
+**Stage 1: Multi-Task Integration (Days 8-9)**
+| Iteration | Focus | Target | Duration | Status |
+|-----------|-------|--------|----------|--------|
+| Integration 1 | Combine all tasks | >75% all tasks | 0.5 days | Pending |
+| Integration 2 | Balance weak tasks | >78% all tasks | 0.5 days | Pending |
+| Integration 3 | Stability check | Consistent performance | 0.5 days | Pending |
+
+**Stage 2: Curriculum Refinement (Day 10)**
+| Phase | Focus | Target | Duration | Status |
+|-------|-------|--------|----------|--------|
+| Hard Cases | Edge cases, complexity | >85% reward | 0.3 days | Pending |
+| Robustness | Variance reduction | Std <0.2 | 0.2 days | Pending |
+
+**Stage 3: Production Polish (Day 11)**
+| Phase | Focus | Target | Duration | Status |
+|-------|-------|--------|----------|--------|
+| Optimization | Hyperparameter tuning | >90% reward | 0.3 days | Pending |
+| Final Evaluation | Test set validation | All metrics pass | 0.2 days | Pending |
+
+### Deployment Pipeline (Days 12-14)
+| Day | Deliverable | Status |
+|-----|-------------|--------|
+| 12  | Model merging + format exports | Pending |
+| 13  | GGUF, MLX, ONNX conversions | Pending |
+| 14  | HF release + documentation | Pending |
+
+### Iteration Decision Points
+
+**Stage Progression Gates:**
+- **Stage 0 → Stage 1**: All individual tasks ≥80% reward
+- **Stage 1 → Stage 2**: Multi-task performance >75% all tasks  
+- **Stage 2 → Stage 3**: Stable performance (std <0.2) for 2+ checkpoints
+- **Stage 3 → Deploy**: Production metrics >90% reward
+
+**Fallback Protocol:**
+- If any stage fails criteria → return to previous stage with adjusted hyperparameters
+- Maximum 2 fallback iterations per stage before strategy revision
+- Continuous eval monitoring prevents catastrophic forgetting
 
 ---
 
