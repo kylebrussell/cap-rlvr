@@ -1,0 +1,57 @@
+# Environment variables
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+cap_env/
+.venv
+
+# Data
+data_raw/
+data_tasks/
+*.jsonl
+*.faiss
+*.h5
+*.parquet
+
+# Models
+models/
+deploy/
+*.bin
+*.safetensors
+*.pth
+*.pt
+
+# Logs
+logs/
+wandb/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Cache
+.cache/
+__pycache__/
+*.pyc
+
+# Temporary
+tmp/
+temp/
+scratch/
