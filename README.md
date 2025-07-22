@@ -23,6 +23,7 @@ cap-rlvr/
 │   ├── build_faiss.py          # Build FAISS index for retrieval evaluation
 │   ├── format_for_sft.py       # ✅ NEW: Format task data for SFT training (TRL-compatible)
 │   ├── migrate_to_lambda.py    # ✅ NEW: Automated Vast.ai -> Lambda Labs migration
+│   ├── prep_grpo_dataset.py    # ✅ NEW: Generate GRPO training datasets with scored responses
 │   ├── reward_holding.py       # Reward function for holding selection
 │   ├── reward_bluebook.py      # Reward function for citation completion
 │   ├── reward_irac.py          # Reward function for IRAC summarization
@@ -71,14 +72,20 @@ cap-rlvr/
    reward = env.step("A")[1]  # Model chooses option A
    ```
 
-### Remote Data Preparation & Migration (Vast.ai → Lambda Labs)
+### Remote Data Preparation (Vast.ai)
 4. **Setup Environment**: Use `scripts/vast_setup.sh` on a remote system with sufficient storage (80GB+ for CAP dataset)
 5. **Download Dataset**: Run `downloads/cli_download.py` for robust CAP dataset acquisition
 6. **Prepare Tasks**: Execute all `scripts/prep_*.py` scripts to generate training data
 7. **Build Embeddings**: Run `scripts/build_faiss.py` to create retrieval index
 8. **Format for SFT**: Generate TRL-compatible datasets with `scripts/format_for_sft.py`
-9. **Migrate to Lambda**: Transfer all data with `scripts/migrate_to_lambda.py`
-10. **Train Model**: Follow the GRPO training pipeline in `docs/cap_rlvr_grpo_plan.md`
+
+### Data Migration (Vast.ai → Lambda Labs)
+9. **Transfer Data**: Copy prepared datasets to Lambda Labs filesystem with `scripts/migrate_to_lambda.py`
+
+### Training Pipeline (Lambda Labs)
+10. **SFT Training**: Complete supervised fine-tuning using transferred datasets
+11. **Generate GRPO Data**: Create multi-response datasets with `scripts/prep_grpo_dataset.py` using SFT model
+12. **GRPO Training**: Follow the GRPO training pipeline in `docs/cap_rlvr_grpo_plan.md`
 
 ## Key Features
 
@@ -188,26 +195,50 @@ python scripts/format_for_sft.py --stats-only
 - **Unified**: `data_tasks/sft_formatted/unified/train_sft_unified.jsonl` (multi-task)
 - **Chat**: `data_tasks/sft_formatted/chat_format/` (messages format for newer models)
 
-### Automated Migration Pipeline
-Transfer processed data from Vast.ai CPU instances to Lambda Labs GPU training:
+### Automated Data Migration Pipeline
+Transfer processed data from Vast.ai CPU instances to Lambda Labs filesystem:
 
 ```bash
-# Check data readiness
+# Check data readiness on Vast.ai
 python scripts/migrate_to_lambda.py --check-only
 
-# Full migration with verification
+# Transfer data to Lambda Labs
 python scripts/migrate_to_lambda.py --lambda-host your-lambda-host
 
-# Test without executing
+# Test migration without executing
 python scripts/migrate_to_lambda.py --dry-run --lambda-host test-host
 ```
 
 **Migration Features:**
-- Validates all 5 data prep tasks completed
-- Creates compressed archive (~5-8GB from ~16GB raw)
-- Transfers both raw task data and SFT-formatted datasets  
-- MD5 integrity verification
-- Automatic cleanup and deployment instructions
+- **Data Transfer Only**: Copies prepared datasets to Lambda Labs filesystem
+- **Validation**: Verifies all 5 data prep tasks completed before transfer
+- **Compression**: Creates efficient archive (~5-8GB from ~16GB raw)
+- **Integrity**: MD5 checksums ensure data transfer accuracy  
+- **Clean Transfer**: Both raw task data and SFT-formatted datasets
+- **No Training Steps**: Migration script only handles data movement, not training orchestration
+
+## GRPO Dataset Generation (Lambda Labs)
+
+After SFT training completes, generate multi-response datasets for GRPO training using the fine-tuned model:
+
+```bash
+# Run on Lambda Labs GPU instance with SFT model
+python scripts/prep_grpo_dataset.py --task all --model_path models/sft --num_candidates 4
+
+# For development/testing with subset
+python scripts/prep_grpo_dataset.py --task bluebook --model_path models/sft --subset 1000
+
+# Mock mode for testing script without model loading
+python scripts/prep_grpo_dataset.py --task bluebook --model_path models/sft --mock_mode
+```
+
+**Key Features:**
+- **Multi-response generation**: Creates 4 candidate responses per query using different sampling parameters
+- **Unified reward scoring**: Integrates with existing reward functions for consistent evaluation
+- **GPU-optimized**: Designed to run on Lambda Labs GPU instances with model loaded in memory
+- **Flexible output**: Generates JSON files with scored response groups ready for GRPO training
+
+**Output:** Creates `data_grpo/{task}/train_grpo.json` files with multiple scored responses per query, enabling GRPO's group-based ranking approach.
 
 ## Dataset
 

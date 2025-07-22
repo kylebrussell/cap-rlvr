@@ -475,11 +475,11 @@ python test_gym_envs.py
 
 ---
 
-## 8. Data Migration and SFT Preparation
+## 8. Data Migration (Vast.ai → Lambda Labs)
 
-### Migration from Vast.ai to Lambda Labs
+### Filesystem Transfer Only
 
-After data preparation completes on Vast.ai, use the automated migration pipeline:
+After data preparation completes on Vast.ai, transfer the prepared datasets to Lambda Labs filesystem:
 
 ```bash
 # Step 1: Format data for SFT training (on Vast.ai)
@@ -494,10 +494,10 @@ python format_for_sft.py --format chat        # Chat message format
 # Check formatting statistics
 python format_for_sft.py --stats-only
 
-# Step 2: Migrate all data to Lambda Labs
+# Step 2: Transfer data to Lambda Labs filesystem
 python migrate_to_lambda.py --lambda-host your-lambda-host
 
-# Or check readiness first
+# Or check data readiness first
 python migrate_to_lambda.py --check-only
 ```
 
@@ -522,20 +522,20 @@ The `format_for_sft.py` script creates TRL-compatible datasets:
 
 ### Migration Pipeline Features
 
-**Data Validation:**
-- Verifies all 5 data prep tasks completed
-- Checks for SFT formatted data availability
-- Validates file integrity with MD5 checksums
+**Data Transfer Only:**
+- **Scope**: Filesystem transfer only - no training orchestration
+- **Validation**: Verifies all 5 data prep tasks completed before transfer
+- **Integrity**: MD5 checksums ensure accurate data transfer
 
-**Compression & Transfer:**
-- Creates compressed archive (~5-8GB from ~16GB raw)
+**Efficient Transfer:**
+- Creates compressed archive (~5-8GB from ~16GB raw)  
 - Includes both raw task data and SFT-formatted datasets
-- Automatic cleanup of temporary files
+- Automatic cleanup of temporary transfer files
 
-**Deployment Ready:**
-- Transfers to Lambda Labs with verification
-- Sets up directory structure for training
-- Provides next-step instructions
+**Lambda Labs Setup:**
+- Transfers to Lambda Labs filesystem with verification
+- Sets up directory structure for subsequent training steps
+- Clean handoff - training steps run independently on Lambda Labs
 
 ---
 
@@ -572,58 +572,81 @@ python -m trl.sft_trainer --model_name Qwen/Qwen3-14B-Instruct \
 
 ### Data Preparation for GRPO
 
+**✅ COMPLETE**: GRPO data preparation script has been fully implemented.
+
 GRPO requires generating multiple candidate responses per query and ranking them. This creates the process supervision dataset:
 
-```python
-# scripts/prep_grpo_dataset.py
-import json
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import reward_bluebook
+#### Complete Implementation: `scripts/prep_grpo_dataset.py`
 
-def generate_grpo_dataset(task_file, model_path, num_candidates=4):
-    """Generate multiple responses per query for GRPO training"""
-    model = AutoModelForCausalLM.from_pretrained(model_path)
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    
-    grpo_data = []
-    with open(task_file) as f:
-        for line in f:
-            sample = json.loads(line)
-            query = sample['inputs']
-            
-            # Generate multiple candidate responses
-            candidates = []
-            for _ in range(num_candidates):
-                inputs = tokenizer.encode(query, return_tensors='pt')
-                response = model.generate(
-                    inputs,
-                    max_new_tokens=100,
-                    do_sample=True,
-                    temperature=0.7
-                )
-                candidates.append(tokenizer.decode(response[0], skip_special_tokens=True))
-            
-            # Score each candidate using our unified reward function
-            from rewards import UnifiedRewardFunction
-            reward_fn = UnifiedRewardFunction()
-            scores = [reward_fn.reward(sample, cand) for cand in candidates]
-            
-            grpo_data.append({
-                'query': query,
-                'responses': candidates,
-                'scores': scores,
-                'metadata': sample.get('metadata', {})
-            })
-    
-    with open(task_file.replace('.jsonl', '_grpo.json'), 'w') as f:
-        json.dump(grpo_data, f)
-    
-    return grpo_data
+The script provides a comprehensive solution for GRPO dataset generation:
 
-# Generate GRPO datasets for all tasks
-for task in ['bluebook', 'holding', 'summarise', 'retrieval', 'entail']:
-    generate_grpo_dataset(f'data_tasks/{task}/train.jsonl', 'models/sft')
+**Key Features:**
+- **Multi-response generation**: Creates 4 candidate responses per query using different sampling parameters (temperature 0.6-0.9, top_p 0.8-0.95)
+- **Unified reward scoring**: Integrates with existing UnifiedRewardFunction for consistent scoring
+- **Task auto-detection**: Automatically detects task type from file path
+- **Development support**: Mock mode for testing, subset processing, comprehensive logging
+- **Robust error handling**: Fallback modes and detailed error reporting
+
+**Usage Examples:**
+
+```bash
+# Process single task with SFT model
+python scripts/prep_grpo_dataset.py --task bluebook --model_path models/sft --num_candidates 4
+
+# Process all tasks with subset for development
+python scripts/prep_grpo_dataset.py --task all --model_path models/sft --subset 1000
+
+# Mock mode for testing without model loading
+python scripts/prep_grpo_dataset.py --task bluebook --model_path models/sft --mock_mode
+
+# Specify custom FAISS index for retrieval task
+python scripts/prep_grpo_dataset.py --task retrieval --model_path models/sft \
+  --faiss_index data_tasks/retrieval/embeddings.faiss
 ```
+
+**Output Format:**
+Creates structured JSON files ready for GRPO training:
+
+```json
+{
+  "metadata": {
+    "total_samples": 1000,
+    "num_candidates_per_query": 4,
+    "avg_max_score": 0.85,
+    "avg_score_range": 0.3,
+    "generation_model": "models/sft"
+  },
+  "samples": [
+    {
+      "query": "Complete this legal citation: Smith v. Jones, 123",
+      "responses": [
+        "Smith v. Jones, 123 F.3d 456 (1st Cir. 1999)",
+        "Smith v. Jones, 123 U.S. 789 (1999)", 
+        "Smith v. Jones, 123 F.2d 321 (1st Cir. 1998)",
+        "Smith v. Jones, 123 Fed. Appx. 654 (1st Cir. 1999)"
+      ],
+      "scores": [0.9, 0.7, 0.8, 0.6],
+      "metadata": {"volume": 123, "case_type": "circuit"},
+      "sample_id": "case_12345"
+    }
+  ]
+}
+```
+
+**Integration with Existing Pipeline:**
+- Automatic FAISS index detection for retrieval tasks
+- Uses existing reward functions without modification  
+- Outputs compatible with GRPO training loop implementation
+- Supports all 5 legal reasoning tasks (bluebook, holding, summarise, retrieval, entail)
+
+**Generate GRPO datasets for all tasks:**
+```bash
+# Full pipeline after SFT training completes
+cd scripts
+python prep_grpo_dataset.py --task all --model_path ../models/sft
+```
+
+This creates the process supervision dataset required for GRPO's group ranking approach, with multiple scored responses per legal query.
 
 ### GRPO Training Loop
 
@@ -794,6 +817,7 @@ Quantise AWQ 4-bit then run via vLLM or TGI.
 | 3   | **✅ COMPLETE: Reward functions + tests pass** |
 | 3.5 | **✅ COMPLETE: Gym environments + integration** |
 | 3.8 | **✅ COMPLETE: SFT formatting + migration pipeline** |
+| 3.9 | **✅ COMPLETE: GRPO data prep script implemented** |
 | 4   | Warm-start SFT complete                     |
 | 5   | GRPO stage0 done (All tasks ≥80% reward)   |
 | 6   | Curriculum complete, eval gate passes       |
