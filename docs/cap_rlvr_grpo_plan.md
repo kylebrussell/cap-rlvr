@@ -793,15 +793,102 @@ class MetricsLogger:
 
 ## 10. Merge, quantise, serve
 
+### Merge LoRA Weights
+
 ```python
+# Merge LoRA adapters with base model
 from peft import PeftModel
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 base = AutoModelForCausalLM.from_pretrained('Qwen/Qwen3-14B-Instruct')
-merged = PeftModel.from_pretrained(base,'models/grpo/bluebook_final').merge_and_unload()
+tokenizer = AutoTokenizer.from_pretrained('Qwen/Qwen3-14B-Instruct')
+
+# Merge for single task
+merged = PeftModel.from_pretrained(base, 'models/grpo/bluebook_final').merge_and_unload()
+
+# Save merged model
 merged.save_pretrained('deploy/qwen_cap_rlvr')
+tokenizer.save_pretrained('deploy/qwen_cap_rlvr')
 ```
 
-Quantise AWQ 4-bit then run via vLLM or TGI.
+### Export to Multiple Formats
+
+**GGUF for llama.cpp:**
+```bash
+# Install conversion tools
+pip install gguf
+
+# Convert to GGUF format with quantization
+python -m gguf.gguf_writer \
+  --model deploy/qwen_cap_rlvr \
+  --output deploy/qwen_cap_rlvr.gguf \
+  --quantize q4_0
+
+# Alternative: use llama.cpp conversion script
+git clone https://github.com/ggerganov/llama.cpp
+cd llama.cpp
+python convert.py ../deploy/qwen_cap_rlvr --outfile ../deploy/qwen_cap_rlvr.gguf --outtype q4_0
+```
+
+**MLX for Apple Silicon:**
+```bash
+# Install MLX conversion tools
+pip install mlx-lm
+
+# Convert to MLX format
+python -m mlx_lm.convert \
+  --hf-path deploy/qwen_cap_rlvr \
+  --mlx-path deploy/qwen_cap_rlvr_mlx \
+  --quantize
+
+# Test MLX inference
+python -m mlx_lm.generate \
+  --model deploy/qwen_cap_rlvr_mlx \
+  --prompt "Complete this citation: Smith v. Jones, 123"
+```
+
+**ONNX for Cross-Platform:**
+```bash
+# Install ONNX conversion tools
+pip install optimum[onnxruntime]
+
+# Convert to ONNX with quantization
+optimum-cli export onnx \
+  --model deploy/qwen_cap_rlvr \
+  --output deploy/qwen_cap_rlvr_onnx \
+  --quantize
+
+# Test ONNX inference
+python -c "
+from optimum.onnxruntime import ORTModelForCausalLM
+from transformers import AutoTokenizer
+model = ORTModelForCausalLM.from_pretrained('deploy/qwen_cap_rlvr_onnx')
+tokenizer = AutoTokenizer.from_pretrained('deploy/qwen_cap_rlvr')
+"
+```
+
+**Additional Quantization Options:**
+```bash
+# AWQ 4-bit quantization for vLLM/TGI
+pip install autoawq
+python -c "
+from awq import AutoAWQForCausalLM
+from transformers import AutoTokenizer
+model = AutoAWQForCausalLM.from_pretrained('deploy/qwen_cap_rlvr')
+tokenizer = AutoTokenizer.from_pretrained('deploy/qwen_cap_rlvr')
+model.quantize(tokenizer, quant_config={'zero_point': True, 'q_group_size': 128})
+model.save_quantized('deploy/qwen_cap_rlvr_awq')
+"
+
+# GPTQ quantization
+pip install auto-gptq
+python -c "
+from auto_gptq import AutoGPTQForCausalLM
+model = AutoGPTQForCausalLM.from_pretrained('deploy/qwen_cap_rlvr')
+model.quantize(['your_calibration_data'])
+model.save_quantized('deploy/qwen_cap_rlvr_gptq')
+"
+```
 
 ---
 
