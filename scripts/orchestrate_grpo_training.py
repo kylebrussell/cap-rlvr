@@ -23,6 +23,10 @@ import sys
 import os
 from datetime import datetime, timedelta
 
+# Add current directory to path for imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from model_utils import generate_output_path, extract_model_size, get_deployment_name
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -77,16 +81,23 @@ class GRPOTrainingOrchestrator:
         }
     }
     
-    def __init__(self, base_output_dir: str = "models/grpo", max_retries: int = 2):
+    def __init__(self, base_output_dir: str = "models/grpo", max_retries: int = 2, sft_model_path: str = None):
         """
         Initialize GRPO training orchestrator.
         
         Args:
             base_output_dir: Base directory for model outputs
             max_retries: Maximum retries per stage before giving up
+            sft_model_path: SFT model path for size-aware directory naming
         """
         self.base_output_dir = Path(base_output_dir)
         self.max_retries = max_retries
+        self.sft_model_path = sft_model_path
+        
+        # Create model-size-aware directory if SFT model provided
+        if sft_model_path:
+            self.base_output_dir = generate_output_path(base_output_dir, sft_model_path).parent
+        
         self.base_output_dir.mkdir(parents=True, exist_ok=True)
         self.current_process = None
         self.shutdown_requested = False
@@ -478,8 +489,12 @@ class GRPOTrainingOrchestrator:
             stage_duration = time.time() - stage_start_time
             logger.info(f"Stage {stage} completed in {stage_duration/3600:.2f} hours")
         
-        # Final production model
-        production_model_path = self.base_output_dir / "production_ready"
+        # Final production model with deployment-ready name
+        if self.sft_model_path:
+            production_name = get_deployment_name(self.sft_model_path, "production")
+            production_model_path = self.base_output_dir / production_name
+        else:
+            production_model_path = self.base_output_dir / "production_ready"
         
         import shutil
         if production_model_path.exists():
@@ -488,6 +503,12 @@ class GRPOTrainingOrchestrator:
         
         logger.info(f"🎉 GRPO Training Pipeline completed successfully!")
         logger.info(f"Production model: {production_model_path}")
+        
+        # Extract model info for final summary
+        model_size = extract_model_size(self.sft_model_path) if self.sft_model_path else None
+        if model_size:
+            logger.info(f"📦 Model size: {model_size}")
+            logger.info(f"🚀 Ready for deployment as: {production_model_path.name}")
         
         return str(production_model_path)
 
@@ -521,10 +542,11 @@ def main():
     if not Path(base_model).exists():
         parser.error(f"Base model path does not exist: {base_model}")
     
-    # Initialize orchestrator
+    # Initialize orchestrator with SFT model for size-aware naming
     orchestrator = GRPOTrainingOrchestrator(
         base_output_dir=args.output_dir,
-        max_retries=args.max_retries
+        max_retries=args.max_retries,
+        sft_model_path=base_model
     )
     
     if args.dry_run:

@@ -40,6 +40,7 @@ except ImportError:
 # Add current directory to path for reward functions
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from rewards import UnifiedRewardFunction
+from model_utils import generate_output_path, extract_model_size
 
 # Configure logging
 logging.basicConfig(
@@ -75,7 +76,13 @@ class GRPOLegalTrainer:
         """
         self.model_path = model_path
         self.task_name = task_name
-        self.output_dir = Path(output_dir)
+        
+        # Generate model-size-aware output directory
+        if task_name:
+            self.output_dir = generate_output_path(output_dir, model_path, task_name)
+        else:
+            self.output_dir = generate_output_path(output_dir, model_path, stage="multi_task")
+        
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
         
         # Initialize reward function
@@ -85,11 +92,15 @@ class GRPOLegalTrainer:
         self.model = None
         self.tokenizer = None
         
+        # Extract model size for logging
+        model_size = extract_model_size(model_path)
+        size_info = f" ({model_size})" if model_size else ""
+        
         logger.info(f"GRPO Legal Trainer initialized")
-        logger.info(f"Model path: {model_path}")
+        logger.info(f"Model path: {model_path}{size_info}")
         logger.info(f"Task: {task_name or 'multi-task'}")
         logger.info(f"Device: {self.device}")
-        logger.info(f"Output directory: {output_dir}")
+        logger.info(f"Output directory: {self.output_dir}")
     
     def load_model_and_tokenizer(self):
         """Load the fine-tuned model and tokenizer"""

@@ -301,6 +301,7 @@ python scripts/orchestrate_grpo_training.py --sft_model_path models/sft --dry_ru
 
 **Automation Features:**
 - **4-Stage Pipeline**: Individual mastery → Multi-task integration → Curriculum refinement → Production optimization
+- **Model-Size-Aware Naming**: Automatic detection and organization by model size (7B, 14B, 32B, etc.)
 - **Auto-Validation**: Reward thresholds checked automatically between stages
 - **Smart Retry Logic**: Failed stages retry with adjusted parameters (max 2 retries per stage)
 - **Multi-Hour Training Support**: Enhanced monitoring for long-duration runs (up to 6 hours per stage)
@@ -316,6 +317,22 @@ python scripts/orchestrate_grpo_training.py --sft_model_path models/sft --dry_ru
 - **Stage 1**: ≥75% reward across all tasks simultaneously
 - **Stage 2**: ≥85% reward with variance <0.15
 - **Stage 3**: ≥90% reward with variance <0.10
+
+**Model-Size-Aware Output Structure:**
+```
+models/
+├── qwen3-14b/
+│   ├── grpo/
+│   │   ├── qwen3-cap-rlvr-14b-production/  # Final production model
+│   │   ├── stage0_complete/
+│   │   └── stage1_complete/
+│   └── sft/
+├── qwen3-7b/
+│   └── grpo/
+│       └── qwen3-cap-rlvr-7b-production/
+└── qwen3-32b/  # Future large model support
+    └── grpo/
+```
 
 ## Dataset
 

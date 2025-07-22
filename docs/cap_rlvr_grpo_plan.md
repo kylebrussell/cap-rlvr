@@ -948,8 +948,14 @@ tokenizer = AutoTokenizer.from_pretrained('Qwen/Qwen3-14B-Instruct')
 merged = PeftModel.from_pretrained(base, 'models/grpo/bluebook_final').merge_and_unload()
 
 # Save merged model
-merged.save_pretrained('deploy/qwen_cap_rlvr')
-tokenizer.save_pretrained('deploy/qwen_cap_rlvr')
+# Model size is automatically included in paths
+# For 14B model: deploy/qwen3-cap-rlvr-14b
+# For 7B model: deploy/qwen3-cap-rlvr-7b
+deployment_name = get_deployment_name(production_model_path, "production")
+deploy_path = f'deploy/{deployment_name}'
+
+merged.save_pretrained(deploy_path)
+tokenizer.save_pretrained(deploy_path)
 ```
 
 ### Export to Multiple Formats
