@@ -16,10 +16,12 @@ import tarfile
 import tempfile
 
 class DataMigrator:
-    def __init__(self, vast_host="vast-cap", lambda_host=None, dry_run=False):
+    def __init__(self, vast_host="vast-cap", lambda_host=None, dry_run=False, force=False, partial=False):
         self.vast_host = vast_host
         self.lambda_host = lambda_host
         self.dry_run = dry_run
+        self.force = force
+        self.partial = partial
         self.vast_data_path = "~/cap_rlvr/data_tasks"
         self.vast_sft_path = "~/cap_rlvr/data_tasks/sft_formatted"
         self.lambda_data_path = "~/cap_rlvr/data_tasks"
@@ -48,7 +50,7 @@ class DataMigrator:
             raise
             
     def check_vast_data_ready(self):
-        """Check if all data preparation tasks are completed"""
+        """Check if data preparation tasks are completed (with force/partial options)"""
         self.log("Checking Vast.ai data preparation status...")
         
         # Check for running prep processes
@@ -60,11 +62,19 @@ class DataMigrator:
         if int(running_procs) > 0:
             self.log("⚠️  Data prep processes still running on Vast.ai")
             self.run_ssh_command(self.vast_host, "ps aux | grep 'python prep_' | grep -v grep", False)
-            return False
+            
+            if self.force:
+                self.log("🔧 --force flag enabled, proceeding anyway")
+            elif self.partial:
+                self.log("📦 --partial flag enabled, will transfer completed tasks only")
+            else:
+                self.log("❌ Use --force to proceed anyway or --partial to transfer completed tasks")
+                return False
             
         # Check for expected output directories
         expected_tasks = ["bluebook", "holding", "entail", "summarise", "retrieval"]
         missing_tasks = []
+        completed_tasks = []
         
         for task in expected_tasks:
             try:
@@ -72,15 +82,43 @@ class DataMigrator:
                     self.vast_host,
                     f"ls {self.vast_data_path}/{task}/train.jsonl > /dev/null 2>&1"
                 )
+                completed_tasks.append(task)
             except subprocess.CalledProcessError:
                 missing_tasks.append(task)
                 
         if missing_tasks:
             self.log(f"⚠️  Missing tasks: {', '.join(missing_tasks)}")
-            return False
+            self.log(f"✅ Completed tasks: {', '.join(completed_tasks)}")
+            
+            if self.force:
+                self.log("🔧 --force flag enabled, proceeding with all available data")
+                return True
+            elif self.partial:
+                self.log(f"📦 --partial flag enabled, will transfer {len(completed_tasks)} completed tasks")
+                return True
+            else:
+                self.log("❌ Use --force or --partial to proceed with incomplete data")
+                return False
             
         self.log("✅ All data preparation tasks completed on Vast.ai")
         return True
+    
+    def get_completed_tasks(self):
+        """Get list of completed tasks for partial migration"""
+        expected_tasks = ["bluebook", "holding", "entail", "summarise", "retrieval"]
+        completed_tasks = []
+        
+        for task in expected_tasks:
+            try:
+                self.run_ssh_command(
+                    self.vast_host,
+                    f"ls {self.vast_data_path}/{task}/train.jsonl > /dev/null 2>&1"
+                )
+                completed_tasks.append(task)
+            except subprocess.CalledProcessError:
+                continue
+                
+        return completed_tasks
         
     def get_data_inventory(self):
         """Get inventory of data files and sizes"""
@@ -301,13 +339,17 @@ def main():
     parser.add_argument("--lambda-host", help="Lambda Labs SSH host (required for transfer)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done without executing")
     parser.add_argument("--check-only", action="store_true", help="Only check if data is ready")
+    parser.add_argument("--force", action="store_true", help="Proceed even if data prep processes are running")
+    parser.add_argument("--partial", action="store_true", help="Transfer only completed tasks (ignore missing ones)")
     
     args = parser.parse_args()
     
     migrator = DataMigrator(
         vast_host=args.vast_host,
         lambda_host=args.lambda_host, 
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
+        force=args.force,
+        partial=args.partial
     )
     
     if args.check_only:
