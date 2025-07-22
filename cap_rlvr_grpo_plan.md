@@ -58,15 +58,32 @@ export WS=~/cap_rlvr && mkdir -p $WS/{data_raw,data_tasks,scripts,envs,models/{b
 
 ## 3. Dataset acquisition (on Vast.ai)
 
+### Robust approach for large datasets (78GB+)
+
 ```bash
-pip install datasets huggingface_hub
-python - <<'PY'
-from datasets import load_dataset
-load_dataset("common-pile/caselaw_access_project", split="train").save_to_disk("data_raw/cap")
-PY
+pip install huggingface_hub[cli]
+# Use CLI with built-in resume capability for large datasets
+huggingface-cli download common-pile/caselaw_access_project \
+  --repo-type=dataset \
+  --local-dir=data_raw/cap_raw \
+  --resume-download
 ```
 
-78 GB written to NVMe in ~25 min.
+**Why CLI over Python API:**
+- Built-in retry/resume for network failures
+- Better memory efficiency (no RAM loading)
+- Robust handling of connection timeouts
+- Automatic chunked downloads
+
+**Alternative streaming approach (if CLI unavailable):**
+```python
+# For datasets too large for memory
+from datasets import load_dataset
+dataset = load_dataset("common-pile/caselaw_access_project", split="train", streaming=True)
+# Process in chunks to avoid memory issues
+```
+
+78 GB written to NVMe in ~25-45 min (depending on network stability).
 
 ---
 
