@@ -21,9 +21,10 @@ cap-rlvr/
 │   ├── prep_retrieval_task.py  # Generate case retrieval tasks
 │   ├── prep_entail_task.py     # Generate case relationship tasks
 │   ├── build_faiss.py          # Build FAISS index for retrieval evaluation
-│   ├── format_for_sft.py       # ✅ NEW: Format task data for SFT training (TRL-compatible)
-│   ├── migrate_to_lambda.py    # ✅ NEW: Automated Vast.ai -> Lambda Labs migration
-│   ├── prep_grpo_dataset.py    # ✅ NEW: Generate GRPO training datasets with scored responses
+│   ├── format_for_sft.py       # ✅ Format task data for SFT training (TRL-compatible)
+│   ├── migrate_to_lambda.py    # ✅ Automated Vast.ai -> Lambda Labs migration
+│   ├── prep_grpo_dataset.py    # ✅ Generate GRPO training datasets with scored responses
+│   ├── train_grpo.py           # ✅ NEW: Complete GRPO training implementation
 │   ├── reward_holding.py       # Reward function for holding selection
 │   ├── reward_bluebook.py      # Reward function for citation completion
 │   ├── reward_irac.py          # Reward function for IRAC summarization
@@ -85,7 +86,7 @@ cap-rlvr/
 ### Training Pipeline (Lambda Labs)
 10. **SFT Training**: Complete supervised fine-tuning using transferred datasets
 11. **Generate GRPO Data**: Create multi-response datasets with `scripts/prep_grpo_dataset.py` using SFT model
-12. **GRPO Training**: Follow the GRPO training pipeline in `docs/cap_rlvr_grpo_plan.md`
+12. **GRPO Training**: Execute reinforcement learning with `scripts/train_grpo.py` using the generated datasets
 
 ## Key Features
 
@@ -239,6 +240,33 @@ python scripts/prep_grpo_dataset.py --task bluebook --model_path models/sft --mo
 - **Flexible output**: Generates JSON files with scored response groups ready for GRPO training
 
 **Output:** Creates `data_grpo/{task}/train_grpo.json` files with multiple scored responses per query, enabling GRPO's group-based ranking approach.
+
+## GRPO Training (Lambda Labs)
+
+Execute reinforcement learning training using the complete GRPO implementation:
+
+```bash
+# Single task GRPO training
+python scripts/train_grpo.py --task bluebook --model_path models/sft \
+  --data_path data_grpo/bluebook/train_grpo.json
+
+# Multi-task GRPO training with evaluation
+python scripts/train_grpo.py --task all --multi_task --model_path models/sft \
+  --data_path data_grpo/unified/train_grpo.json \
+  --eval_data_path data_grpo/unified/eval_grpo.json
+
+# Custom configuration for production training
+python scripts/train_grpo.py --task holding --model_path models/sft \
+  --data_path data_grpo/holding/train_grpo.json \
+  --batch_size 4 --learning_rate 5e-6 --num_epochs 5
+```
+
+**Key Features:**
+- **Production-Ready**: Complete error handling, checkpointing, and resumption
+- **Multi-Task Support**: Train on individual tasks or combined datasets
+- **Memory Optimized**: Conservative batch sizes and gradient accumulation for large models
+- **Legal-Specific Metrics**: Custom callbacks and logging for legal reasoning evaluation
+- **TRL Integration**: Modern TRL library compatibility with proper GRPO implementation
 
 ## Dataset
 

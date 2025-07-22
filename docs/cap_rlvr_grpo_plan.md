@@ -648,68 +648,73 @@ python prep_grpo_dataset.py --task all --model_path ../models/sft
 
 This creates the process supervision dataset required for GRPO's group ranking approach, with multiple scored responses per legal query.
 
-### GRPO Training Loop
+### GRPO Training Implementation
 
-```python
-from trl import AutoModelForCausalLMWithValueHead, GRPOTrainer, GRPOConfig
-from transformers import AutoTokenizer
-import json, numpy as np
-from rewards import UnifiedRewardFunction
+**✅ COMPLETE**: A production-ready GRPO training script has been implemented.
 
-tok = AutoTokenizer.from_pretrained('models/sft', padding_side='left')
-mdl = AutoModelForCausalLMWithValueHead.from_pretrained('models/sft', load_in_4bit=True,
-        peft_config={'r':64,'target_modules':['q_proj','v_proj']})
+The complete implementation is available as `scripts/train_grpo.py` with the following features:
 
-# Load pre-generated GRPO dataset with multiple responses per query
-grpo_dataset = json.load(open('data_tasks/bluebook/train_grpo.json'))
+#### Complete Implementation: `scripts/train_grpo.py`
 
-# Configure GRPO with legal-specific parameters
-grpo_config = GRPOConfig(
-    model_name='models/sft',
-    learning_rate=1e-5,
-    batch_size=4,
-    num_train_epochs=3,
-    gradient_accumulation_steps=8,
-    # GRPO-specific: compare groups of 4 responses
-    num_responses_per_query=4,
-    # Use our deterministic rewards for ranking
-    reward_model=None,  # We use explicit reward functions
-    # Process supervision: reward intermediate steps
-    use_process_rewards=True
-)
+**Key Features:**
+- **Modern TRL Integration**: Uses current TRL library API with proper GRPOTrainer and GRPOConfig
+- **Unified Reward Integration**: Seamless integration with existing UnifiedRewardFunction
+- **Production-Ready**: Comprehensive error handling, logging, checkpointing, and evaluation
+- **Multi-Task Support**: Can train on single tasks or combined multi-task datasets
+- **Hardware Optimization**: Automatic device detection, mixed precision, gradient accumulation
 
-grpo_trainer = GRPOTrainer(
-    model=mdl,
-    tokenizer=tok,
-    config=grpo_config
-)
+**Usage Examples:**
 
-# Training loop with process supervision
-for epoch in range(grpo_config.num_train_epochs):
-    for i in range(0, len(grpo_dataset), grpo_config.batch_size):
-        batch = grpo_dataset[i:i+grpo_config.batch_size]
-        
-        queries = [item['query'] for item in batch]
-        response_groups = [item['responses'] for item in batch]
-        
-        # Score each response using our unified reward system
-        from rewards import UnifiedRewardFunction
-        reward_fn = UnifiedRewardFunction()
-        rewards = []
-        for item, responses in zip(batch, response_groups):
-            query_rewards = [reward_fn.reward(item, resp) for resp in responses]
-            rewards.append(query_rewards)
-        
-        # GRPO step: learn from relative rankings within each group
-        grpo_trainer.step(queries, response_groups, rewards)
-        
-        # Log process metrics
-        if grpo_trainer.global_step % 100 == 0:
-            avg_reward = np.mean([np.max(r) for r in rewards])
-            print(f"Step {grpo_trainer.global_step}: Max avg reward = {avg_reward:.3f}")
+```bash
+# Single task GRPO training
+python scripts/train_grpo.py --task bluebook --model_path models/sft \
+  --data_path data_grpo/bluebook/train_grpo.json
 
-grpo_trainer.save_pretrained('models/grpo/bluebook_final')
+# Multi-task GRPO training  
+python scripts/train_grpo.py --task all --multi_task --model_path models/sft \
+  --data_path data_grpo/unified/train_grpo.json
+
+# With custom configuration
+python scripts/train_grpo.py --task holding --model_path models/sft \
+  --data_path data_grpo/holding/train_grpo.json \
+  --batch_size 4 --learning_rate 5e-6 --num_epochs 5 --beta 0.15
+
+# Resume from checkpoint
+python scripts/train_grpo.py --task bluebook --model_path models/sft \
+  --data_path data_grpo/bluebook/train_grpo.json \
+  --resume_from_checkpoint models/grpo/bluebook_grpo/checkpoint-1000
 ```
+
+**Configuration Options:**
+- `--task`: Task type (bluebook, holding, summarise, retrieval, entail, all)
+- `--model_path`: Path to SFT fine-tuned model
+- `--data_path`: Path to GRPO dataset JSON file (from prep_grpo_dataset.py)
+- `--eval_data_path`: Optional evaluation dataset path
+- `--batch_size`: Training batch size per device (default: 2)
+- `--learning_rate`: Learning rate (default: 1e-5)
+- `--num_epochs`: Number of training epochs (default: 3)
+- `--beta`: GRPO KL penalty coefficient (default: 0.1)
+- `--output_dir`: Model output directory (default: models/grpo)
+
+**Training Pipeline Integration:**
+```bash
+# After SFT training completes and GRPO data is generated
+python scripts/train_grpo.py --task bluebook --model_path models/sft \
+  --data_path data_grpo/bluebook/train_grpo.json \
+  --eval_data_path data_grpo/bluebook/eval_grpo.json
+```
+
+**Key Implementation Improvements:**
+- ✅ **Correct TRL API Usage**: Uses proper GRPOConfig and GRPOTrainer APIs
+- ✅ **Proper Model Loading**: Standard transformers model loading (not deprecated APIs)
+- ✅ **Dataset Preparation**: Converts GRPO JSON format to HuggingFace Dataset format
+- ✅ **Reward Function Integration**: Proper reward_funcs parameter usage
+- ✅ **Training Loop**: Uses trainer.train() method (not manual loops)
+- ✅ **Error Handling**: Comprehensive try/catch and validation
+- ✅ **Checkpointing**: Automatic saving and resumption capabilities
+- ✅ **Evaluation**: Optional evaluation dataset integration
+- ✅ **Logging**: Detailed logging with legal-specific metrics
+- ✅ **Memory Optimization**: Conservative batch sizes and gradient accumulation
 
 ---
 
