@@ -475,7 +475,71 @@ python test_gym_envs.py
 
 ---
 
-## 8. Training pipeline (SFT → GRPO)
+## 8. Data Migration and SFT Preparation
+
+### Migration from Vast.ai to Lambda Labs
+
+After data preparation completes on Vast.ai, use the automated migration pipeline:
+
+```bash
+# Step 1: Format data for SFT training (on Vast.ai)
+cd ~/cap_rlvr/scripts
+source ../cap_env/bin/activate
+
+# Generate TRL-compatible prompt-completion pairs
+python format_for_sft.py --format separate    # Individual task files
+python format_for_sft.py --format unified     # Multi-task training file
+python format_for_sft.py --format chat        # Chat message format
+
+# Check formatting statistics
+python format_for_sft.py --stats-only
+
+# Step 2: Migrate all data to Lambda Labs
+python migrate_to_lambda.py --lambda-host your-lambda-host
+
+# Or check readiness first
+python migrate_to_lambda.py --check-only
+```
+
+### SFT Data Formats
+
+The `format_for_sft.py` script creates TRL-compatible datasets:
+
+**Individual Task Format** (`--format separate`):
+```json
+{"prompt": "Complete this legal citation: Smith v. Jones, 123", "completion": "Smith v. Jones, 123 F.3d 456 (1st Cir. 1999)", "task": "bluebook"}
+```
+
+**Unified Multi-Task Format** (`--format unified`):
+- All 5 tasks combined and shuffled
+- Balanced sampling across legal reasoning types
+- Ready for curriculum learning approaches
+
+**Chat Message Format** (`--format chat`):
+```json
+{"messages": [{"role": "user", "content": "Complete this citation..."}, {"role": "assistant", "content": "Smith v. Jones..."}]}
+```
+
+### Migration Pipeline Features
+
+**Data Validation:**
+- Verifies all 5 data prep tasks completed
+- Checks for SFT formatted data availability
+- Validates file integrity with MD5 checksums
+
+**Compression & Transfer:**
+- Creates compressed archive (~5-8GB from ~16GB raw)
+- Includes both raw task data and SFT-formatted datasets
+- Automatic cleanup of temporary files
+
+**Deployment Ready:**
+- Transfers to Lambda Labs with verification
+- Sets up directory structure for training
+- Provides next-step instructions
+
+---
+
+## 9. Training pipeline (SFT → GRPO)
 
 ### Why GRPO over PPO for Legal Reasoning?
 
@@ -488,11 +552,23 @@ Group Relative Policy Optimization (GRPO) is superior to PPO for our legal reaso
 
 ### Warm-start SFT
 
+Use the pre-formatted SFT datasets for efficient training:
+
 ```bash
+# Multi-task SFT (recommended)
 python -m trl.sft_trainer --model_name Qwen/Qwen3-14B-Instruct \
-  --dataset_path data_tasks/summarise/train.jsonl --use_lora True --q_lora True \
+  --dataset_path data_tasks/sft_formatted/unified/train_sft_unified.jsonl \
+  --dataset_text_field text --use_lora True --q_lora True \
   --batch_size 2 --accum_steps 16 --bf16 --epochs 2 --output_dir models/sft
+
+# Single-task SFT (for task-specific models)
+python -m trl.sft_trainer --model_name Qwen/Qwen3-14B-Instruct \
+  --dataset_path data_tasks/sft_formatted/bluebook/train_sft.jsonl \
+  --dataset_text_field text --use_lora True --q_lora True \
+  --batch_size 4 --accum_steps 8 --bf16 --epochs 3 --output_dir models/sft_bluebook
 ```
+
+**Dataset Format**: The formatted datasets use standard prompt-completion structure compatible with TRL's SFTTrainer, with task-specific instruction templates and proper legal language formatting.
 
 ### Data Preparation for GRPO
 
@@ -709,7 +785,7 @@ Quantise AWQ 4-bit then run via vLLM or TGI.
 
 ---
 
-## 11. 7-day timeline
+## 12. 7-day timeline
 
 | Day | Deliverable                                 |
 | --- | ------------------------------------------- |
@@ -717,6 +793,7 @@ Quantise AWQ 4-bit then run via vLLM or TGI.
 | 2   | Micro-tasks JSONL ready                     |
 | 3   | **✅ COMPLETE: Reward functions + tests pass** |
 | 3.5 | **✅ COMPLETE: Gym environments + integration** |
+| 3.8 | **✅ COMPLETE: SFT formatting + migration pipeline** |
 | 4   | Warm-start SFT complete                     |
 | 5   | GRPO stage0 done (All tasks ≥80% reward)   |
 | 6   | Curriculum complete, eval gate passes       |

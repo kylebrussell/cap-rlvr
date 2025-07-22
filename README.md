@@ -21,6 +21,8 @@ cap-rlvr/
 │   ├── prep_retrieval_task.py  # Generate case retrieval tasks
 │   ├── prep_entail_task.py     # Generate case relationship tasks
 │   ├── build_faiss.py          # Build FAISS index for retrieval evaluation
+│   ├── format_for_sft.py       # ✅ NEW: Format task data for SFT training (TRL-compatible)
+│   ├── migrate_to_lambda.py    # ✅ NEW: Automated Vast.ai -> Lambda Labs migration
 │   ├── reward_holding.py       # Reward function for holding selection
 │   ├── reward_bluebook.py      # Reward function for citation completion
 │   ├── reward_irac.py          # Reward function for IRAC summarization
@@ -69,18 +71,21 @@ cap-rlvr/
    reward = env.step("A")[1]  # Model chooses option A
    ```
 
-### Remote Data Preparation (Vast.ai)
+### Remote Data Preparation & Migration (Vast.ai → Lambda Labs)
 4. **Setup Environment**: Use `scripts/vast_setup.sh` on a remote system with sufficient storage (80GB+ for CAP dataset)
 5. **Download Dataset**: Run `downloads/cli_download.py` for robust CAP dataset acquisition
 6. **Prepare Tasks**: Execute all `scripts/prep_*.py` scripts to generate training data
 7. **Build Embeddings**: Run `scripts/build_faiss.py` to create retrieval index
-8. **Test Rewards**: Verify reward functions with `python scripts/rewards.py`
-9. **Train Model**: Follow the GRPO training pipeline in `docs/cap_rlvr_grpo_plan.md`
+8. **Format for SFT**: Generate TRL-compatible datasets with `scripts/format_for_sft.py`
+9. **Migrate to Lambda**: Transfer all data with `scripts/migrate_to_lambda.py`
+10. **Train Model**: Follow the GRPO training pipeline in `docs/cap_rlvr_grpo_plan.md`
 
 ## Key Features
 
 - **✅ Complete Gym Environments**: Full OpenAI Gym interface for all 5 legal reasoning tasks
 - **✅ RLHF/GRPO Ready**: Environments integrate seamlessly with reinforcement learning training
+- **✅ Automated Migration Pipeline**: Seamless Vast.ai → Lambda Labs data transfer with verification
+- **✅ TRL-Compatible SFT Formatting**: Ready-to-use prompt-completion datasets for supervised fine-tuning
 - **Robust Dataset Download**: Multiple approaches for handling 78GB CAP dataset with resume capability
 - **Multi-Task Training Data**: 5 legal reasoning tasks (holdings, citations, summaries, retrieval, relationships)
 - **✅ Complete Reward System**: Deterministic scoring functions for all task types with unified interface
@@ -162,6 +167,47 @@ for task, env in environments.items():
 ```
 
 See `envs/README.md` for comprehensive documentation and advanced usage patterns.
+
+## SFT Data Formatting & Migration
+
+### TRL-Compatible Dataset Generation
+The `format_for_sft.py` script converts raw task data into ready-to-use SFT datasets:
+
+```bash
+# Generate all SFT format variants
+python scripts/format_for_sft.py --format separate    # Individual task files
+python scripts/format_for_sft.py --format unified     # Multi-task training
+python scripts/format_for_sft.py --format chat        # Chat message format
+
+# View statistics without saving
+python scripts/format_for_sft.py --stats-only
+```
+
+**Output Formats:**
+- **Separate**: `data_tasks/sft_formatted/bluebook/train_sft.jsonl` (per-task training)
+- **Unified**: `data_tasks/sft_formatted/unified/train_sft_unified.jsonl` (multi-task)
+- **Chat**: `data_tasks/sft_formatted/chat_format/` (messages format for newer models)
+
+### Automated Migration Pipeline
+Transfer processed data from Vast.ai CPU instances to Lambda Labs GPU training:
+
+```bash
+# Check data readiness
+python scripts/migrate_to_lambda.py --check-only
+
+# Full migration with verification
+python scripts/migrate_to_lambda.py --lambda-host your-lambda-host
+
+# Test without executing
+python scripts/migrate_to_lambda.py --dry-run --lambda-host test-host
+```
+
+**Migration Features:**
+- Validates all 5 data prep tasks completed
+- Creates compressed archive (~5-8GB from ~16GB raw)
+- Transfers both raw task data and SFT-formatted datasets  
+- MD5 integrity verification
+- Automatic cleanup and deployment instructions
 
 ## Dataset
 
