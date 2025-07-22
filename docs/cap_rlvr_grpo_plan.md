@@ -341,21 +341,137 @@ entail_reward = EntailmentRewardFunction()
 
 ---
 
-## 7. Gym environments snippets
+## 7. Gym Environments (Complete Implementation)
+
+**✅ COMPLETE**: All five gym environments have been implemented with full OpenAI Gym interface compatibility.
+
+### 7.1 Environment Structure
+
+```text
+envs/
+├── __init__.py              # Package initialization with all environments
+├── base_env.py             # Base environment class (BaseCapRLVREnv)
+├── holding_env.py          # Holding selection environment
+├── bluebook_env.py         # Bluebook citation environment  
+├── summarise_env.py        # IRAC summary environment
+├── retrieval_env.py        # Case retrieval environment
+├── entail_env.py           # Entailment environment
+└── README.md               # Complete documentation
+```
+
+### 7.2 Environment Features
+
+**Standard Gym Interface:**
+- `env.reset()` → observation dict
+- `env.step(action)` → (observation, reward, done, info)
+- `env.render()` → human-readable display
+- `env.close()` → cleanup resources
+
+**Unified Architecture:**
+- All environments inherit from `BaseCapRLVREnv`
+- Automatic reward function integration via `UnifiedRewardFunction`
+- Text-based action space for natural language responses
+- Flexible data loading with subset support
+- Task-specific observation formatting
+
+### 7.3 Quick Usage Examples
 
 ```python
-import gym, json, random, reward_bluebook
-class BluebookEnv(gym.Env):
-    def __init__(self, split='train'):
-        self.data=[json.loads(l) for l in open(f'../data_tasks/bluebook/{split}.jsonl')]
-        self.action_space=self.observation_space=gym.spaces.Text()
-    def reset(self):
-        self.sample=random.choice(self.data)
-        return self.sample['inputs']
-    def step(self,action):
-        r=reward_bluebook.reward(self.sample,action)
-        return '',r,True,{}
+# Individual Environment Usage
+from envs import HoldingSelectionEnv, BluebookCitationEnv, CaseRetrievalEnv
+
+# Create holding selection environment
+holding_env = HoldingSelectionEnv(
+    data_path="data_tasks/holding/train.jsonl",
+    subset_size=1000  # Use subset for faster development
+)
+
+# Standard gym loop
+obs = holding_env.reset()
+model_response = "A"  # Model's choice selection
+obs, reward, done, info = holding_env.step(model_response)
+print(f"Reward: {reward}")
+
+# Citation completion environment
+citation_env = BluebookCitationEnv(data_path="data_tasks/bluebook/train.jsonl")
+obs = citation_env.reset()
+citation_response = "123 U.S. 456 (1990)"
+obs, reward, done, info = citation_env.step(citation_response)
+
+# Retrieval environment with FAISS integration
+retrieval_env = CaseRetrievalEnv(
+    data_path="data_tasks/retrieval/train.jsonl",
+    faiss_index_path="data_tasks/retrieval/embeddings.faiss"
+)
 ```
+
+### 7.4 RLHF/GRPO Integration Ready
+
+```python
+# Multi-task environment wrapper for GRPO training
+import random
+from envs import HoldingSelectionEnv, BluebookCitationEnv, IRACsSummaryEnv
+
+class MultiTaskLegalEnv:
+    def __init__(self):
+        self.envs = {
+            'holding': HoldingSelectionEnv(),
+            'bluebook': BluebookCitationEnv(), 
+            'summarise': IRACsSummaryEnv()
+        }
+        self.current_env = None
+        
+    def reset(self):
+        # Sample random task for curriculum learning
+        task = random.choice(list(self.envs.keys()))
+        self.current_env = self.envs[task]
+        obs = self.current_env.reset()
+        obs['task_name'] = task  # Add task identifier
+        return obs
+        
+    def step(self, action):
+        return self.current_env.step(action)
+
+# Use in GRPO training
+multi_env = MultiTaskLegalEnv()
+for episode in range(num_episodes):
+    obs = multi_env.reset()
+    model_response = policy.generate(obs['inputs'])
+    obs, reward, done, info = multi_env.step(model_response)
+    # Process supervision: reward based on reasoning quality
+    policy.update_with_reward(reward, info)
+```
+
+### 7.5 Environment Testing
+
+All environments have been tested and validated:
+
+```bash
+# Test all environments
+python test_gym_envs.py
+
+# Results: ✅ 5/5 environments passed testing
+# - Holding Selection Environment: ✓ PASSED
+# - Bluebook Citation Environment: ✓ PASSED  
+# - IRAC Summary Environment: ✓ PASSED
+# - Case Retrieval Environment: ✓ PASSED
+# - Entailment Environment: ✓ PASSED
+```
+
+### 7.6 Advanced Features
+
+**Task-Specific Enhancements:**
+- **HoldingSelectionEnv**: Formatted multiple choice display, choice extraction
+- **BluebookCitationEnv**: Citation component validation, metadata handling
+- **IRACsSummaryEnv**: Legal summary quality assessment
+- **CaseRetrievalEnv**: FAISS similarity search, case ID extraction
+- **EntailmentEnv**: Relationship classification, context analysis
+
+**Development Support:**
+- Subset training for faster iteration
+- Empty dataset fallback for testing
+- Comprehensive error handling and logging
+- Detailed info dictionaries for analysis
 
 ---
 
@@ -600,6 +716,7 @@ Quantise AWQ 4-bit then run via vLLM or TGI.
 | 1   | CAP downloaded, scripts cloned              |
 | 2   | Micro-tasks JSONL ready                     |
 | 3   | **✅ COMPLETE: Reward functions + tests pass** |
+| 3.5 | **✅ COMPLETE: Gym environments + integration** |
 | 4   | Warm-start SFT complete                     |
 | 5   | GRPO stage0 done (All tasks ≥80% reward)   |
 | 6   | Curriculum complete, eval gate passes       |
