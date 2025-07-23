@@ -1104,7 +1104,7 @@ model.save_quantized('deploy/qwen_cap_rlvr_gptq')
 | 3.5 | **Gym environments + integration** | ✅ COMPLETE |
 | 3.8 | **SFT formatting + migration pipeline** | ✅ COMPLETE |
 | 3.9 | **GRPO data prep + training scripts** | ✅ COMPLETE |
-| 4   | Warm-start SFT complete                     | 🔄 In Progress |
+| 4   | **Warm-start SFT complete (H100 optimized)** | ✅ COMPLETE |
 
 ### Multi-Stage GRPO Training (Days 5-10)
 

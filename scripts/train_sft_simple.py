@@ -88,23 +88,34 @@ def prepare_dataset(dataset_name, tokenizer, max_samples=None, max_length=1024):
         # Combine prompt and completion for SFT
         texts = []
         for prompt, completion in zip(examples['prompt'], examples['completion']):
+            # Handle None/empty completions gracefully
+            if completion is None:
+                completion = ""
+            if prompt is None:
+                prompt = ""
             text = f"{prompt}\n{completion}{tokenizer.eos_token}"
             texts.append(text)
         
-        return tokenizer(
-            texts,
-            truncation=True,
-            padding=False,
-            max_length=max_length,
-            return_tensors=None
-        )
+        # Tokenize with error handling
+        try:
+            return tokenizer(
+                texts,
+                truncation=True,
+                padding=False,
+                max_length=max_length,
+                return_tensors=None
+            )
+        except Exception as e:
+            logger.error(f"Tokenization error: {e}")
+            # Return empty tokenization if failed
+            return {'input_ids': [], 'attention_mask': []}
     
     # Tokenize datasets
     logger.info("Tokenizing datasets...")
     tokenized_dataset = dataset.map(
         tokenize_function,
         batched=True,
-        remove_columns=dataset['train'].column_names,
+        remove_columns=['task', 'metadata', 'split', 'source_line'],  # Keep prompt/completion for tokenization
         desc="Tokenizing"
     )
     

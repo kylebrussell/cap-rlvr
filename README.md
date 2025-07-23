@@ -101,7 +101,10 @@ python scripts/prep_retrieval_task_streaming.py
 9. **Transfer Data**: Copy prepared datasets to Lambda Labs filesystem with `scripts/migrate_to_lambda.py`
 
 ### Training Pipeline (Lambda Labs)
-10. **Memory-Optimized LoRA SFT**: Parameter-efficient fine-tuning with streaming datasets for A6000 GPUs
+10. **H100-Optimized LoRA SFT**: Parameter-efficient fine-tuning with large batches on 2x H100-80GB GPUs
+    - **Current Status**: ✅ Training running overnight with 1M samples (ETA: 7-8 AM)
+    - **Configuration**: FP16, 4 per GPU batch size, 64 effective batch size
+    - **Dataset**: Fixed tokenization compatibility for 9.9M sample SFT dataset
 11. **Generate GRPO Data**: Create multi-response datasets with `scripts/prep_grpo_dataset.py` using SFT model
 12. **GRPO Training**: Execute reinforcement learning with `scripts/train_grpo.py` using the generated datasets
 
@@ -376,5 +379,11 @@ models/
 ## Dataset
 
 Based on the **Caselaw Access Project (CAP)** containing millions of US court decisions, processed into structured training tasks for legal reasoning.
+
+**Current Status**: ✅ All datasets downloaded and cached on Lambda H100 instance
+- `cap-rlvr-holding`: 20K train, 2.5K val/test  
+- `cap-rlvr-bluebook`: 253K train, 32K val/test
+- `cap-rlvr-summarise`: 4.4M train, 555K val/test
+- `cap-rlvr-sft`: 9.9M train, 1.2M val/test (33GB cached)
 
 See `docs/cap_rlvr_grpo_plan.md` for the complete implementation plan and training details.
