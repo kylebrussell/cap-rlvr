@@ -15,7 +15,7 @@ from transformers import (
     Trainer,
     DataCollatorForLanguageModeling
 )
-from peft import LoraConfig, get_peft_model, TaskType
+from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +39,12 @@ def setup_model_and_tokenizer(model_name):
         trust_remote_code=True
     )
     
+    # Enable gradient checkpointing BEFORE preparing for PEFT
+    model.gradient_checkpointing_enable()
+    
+    # Prepare model for PEFT training (required for gradient checkpointing)
+    model = prepare_model_for_kbit_training(model)
+    
     # Setup LoRA
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
@@ -54,20 +60,13 @@ def setup_model_and_tokenizer(model_name):
     return model, tokenizer
 
 def prepare_dataset(dataset_name, tokenizer, max_samples, max_length):
-    """Prepare dataset with robust tokenization"""
-    logger.info(f"Loading dataset: {dataset_name}")
-    dataset = load_dataset(dataset_name)
+    """Prepare dataset with robust tokenization using streaming to handle large datasets."""
+    logger.info(f"Loading dataset: {dataset_name} in streaming mode")
     
-    # Limit samples if specified
-    if max_samples and max_samples < len(dataset['train']):
-        train_size = min(max_samples, len(dataset['train']))
-        eval_size = min(max_samples // 10, len(dataset['validation']))
-        dataset['train'] = dataset['train'].select(range(train_size))
-        dataset['validation'] = dataset['validation'].select(range(eval_size))
-    
-    logger.info(f"Train samples: {len(dataset['train']):,}")
-    logger.info(f"Validation samples: {len(dataset['validation']):,}")
-    
+    # Load the dataset in streaming mode, which returns an IterableDatasetDict
+    dataset = load_dataset(dataset_name, streaming=True)
+
+    # The tokenize_function remains the same, as it processes batches
     def tokenize_function(examples):
         """Robust tokenization function with defensive handling"""
         # Combine prompt and completion
@@ -84,35 +83,56 @@ def prepare_dataset(dataset_name, tokenizer, max_samples, max_length):
                 text = f"{text}{tokenizer.eos_token}"
             texts.append(text)
         
-        # Tokenize - let the collator handle padding and label creation
+        # Tokenize - let collator handle padding for better efficiency
         result = tokenizer(
             texts,
             truncation=True,
             max_length=max_length,
-            padding=False,  # Don't pad here, let collator do it
-            return_tensors=None
+            padding=False,  # Let DataCollator handle padding dynamically
+            return_tensors=None  # Return lists, not tensors
         )
         
-        # Defensive: ensure output structure is correct
-        # Each value should be a list of lists (batch of sequences)
-        for key in result:
-            if isinstance(result[key], list):
-                # Ensure no empty sequences that could cause nesting issues
-                result[key] = [seq if seq else [tokenizer.eos_token_id] for seq in result[key]]
+        # Explicitly create labels for causal language modeling
+        # Labels should be the same as input_ids for next-token prediction
+        result["labels"] = result["input_ids"].copy()
         
-        # Don't create labels here - DataCollatorForLanguageModeling will handle it
         return result
+
+    # Get column names from streaming dataset by taking one sample
+    sample = next(iter(dataset['train']))
+    original_columns = list(sample.keys())
+    logger.info(f"Original dataset columns: {original_columns}")
     
-    # Tokenize datasets
-    logger.info("Tokenizing datasets...")
-    tokenized_dataset = dataset.map(
+    # We need to remove ALL original columns since tokenize_function creates new ones
+    # The tokenizer will create: input_ids, attention_mask (and labels via data collator)
+    columns_to_remove = original_columns
+    logger.info(f"Removing columns: {columns_to_remove}")
+    
+    logger.info("Tokenizing datasets on the fly...")
+    tokenized_train = dataset['train'].map(
         tokenize_function,
         batched=True,
-        remove_columns=dataset['train'].column_names,
-        desc="Tokenizing"
+        remove_columns=columns_to_remove
     )
     
-    return tokenized_dataset
+    tokenized_validation = dataset['validation'].map(
+        tokenize_function,
+        batched=True,
+        remove_columns=columns_to_remove
+    )
+
+    # Apply max_samples limit after tokenization
+    if max_samples:
+        logger.info(f"Limiting train samples to {max_samples}")
+        tokenized_train = tokenized_train.take(max_samples)
+        
+        eval_samples = max(1, max_samples // 10)
+        logger.info(f"Limiting validation samples to {eval_samples}")
+        tokenized_validation = tokenized_validation.take(eval_samples)
+
+    logger.info("Dataset preparation complete. Training will now use the streamed dataset.")
+    
+    return {"train": tokenized_train, "validation": tokenized_validation}
 
 def main():
     parser = argparse.ArgumentParser()
@@ -136,12 +156,27 @@ def main():
     # Prepare dataset
     dataset = prepare_dataset(args.dataset_name, tokenizer, args.max_samples, args.max_length)
     
-    # Data collator - this handles padding and label creation
-    data_collator = DataCollatorForLanguageModeling(
+    # Use a different data collator that handles padding for labels correctly
+    from transformers import DataCollatorForSeq2Seq
+    data_collator = DataCollatorForSeq2Seq(
         tokenizer=tokenizer,
-        mlm=False,  # We're doing causal LM, not masked LM
+        model=model,
+        padding=True,
         pad_to_multiple_of=8,  # Optimize for tensor cores
     )
+    
+    # Calculate max_steps for streaming dataset (since it doesn't have __len__)
+    num_gpus = torch.cuda.device_count()
+    effective_batch_size = args.per_device_train_batch_size * num_gpus * args.gradient_accumulation_steps
+    
+    # Estimate steps: if we have max_samples, use that; otherwise use reasonable default
+    if args.max_samples:
+        estimated_steps = (args.max_samples // effective_batch_size) * args.num_train_epochs
+    else:
+        # Default for 1M samples with 1 epoch
+        estimated_steps = (1000000 // effective_batch_size) * args.num_train_epochs
+    
+    logger.info(f"Estimated training steps: {estimated_steps}")
     
     # Training arguments
     training_args = TrainingArguments(
@@ -153,7 +188,7 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         
         # Training configuration
-        num_train_epochs=args.num_train_epochs,
+        max_steps=estimated_steps,  # Required for streaming datasets
         learning_rate=args.learning_rate,
         warmup_steps=100,
         
@@ -172,19 +207,16 @@ def main():
         eval_steps=args.save_steps,
         
         # Other
-        remove_unused_columns=False,
+        remove_unused_columns=True,  # Let Trainer automatically remove unused columns
         report_to="none",
     )
-    
-    # Calculate effective batch size
-    num_gpus = torch.cuda.device_count()
-    effective_batch_size = args.per_device_train_batch_size * num_gpus * args.gradient_accumulation_steps
     
     logger.info(f"Training Configuration:")
     logger.info(f"  GPUs: {num_gpus}")
     logger.info(f"  Per-device batch size: {args.per_device_train_batch_size}")
     logger.info(f"  Gradient accumulation: {args.gradient_accumulation_steps}")
     logger.info(f"  Effective batch size: {effective_batch_size}")
+    logger.info(f"  Max steps: {estimated_steps}")
     logger.info(f"  Learning rate: {args.learning_rate}")
     logger.info(f"  Max length: {args.max_length}")
     
