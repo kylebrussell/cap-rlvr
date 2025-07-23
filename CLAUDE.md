@@ -8,6 +8,11 @@ SSH command to connect to the Vast.ai remote CPU instance:
 ssh vast-cap
 ```
 
+SSH command to connect to the Lambda Labs GPU instance:
+```bash
+ssh -i ~/.ssh/lambda_key_new ubuntu@104.171.203.89
+```
+
 ## Data Preparation Scripts - Remote Execution Instructions
 
 ### Critical Setup
