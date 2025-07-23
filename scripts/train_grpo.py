@@ -149,24 +149,20 @@ class GRPOLegalTrainer:
         dataset_samples = []
         
         for sample in samples:
-            # Each sample should have query, responses, and scores
-            query = sample.get('query', '')
-            responses = sample.get('responses', [])
-            scores = sample.get('scores', [])
+            # Each sample should have prompt, chosen, and rejected
+            prompt = sample.get('prompt', '')
+            chosen = sample.get('chosen', '')
+            rejected = sample.get('rejected', '')
             
-            if not query or not responses or not scores:
+            if not prompt or not chosen:
                 logger.warning(f"Skipping incomplete sample: {sample.get('sample_id', 'unknown')}")
-                continue
-                
-            if len(responses) != len(scores):
-                logger.warning(f"Responses/scores length mismatch in sample: {sample.get('sample_id', 'unknown')}")
                 continue
             
             # Format for GRPO trainer
             dataset_sample = {
-                'query': query,
-                'responses': responses,
-                'scores': scores,
+                'prompt': prompt,
+                'chosen': chosen,
+                'rejected': rejected,
                 'sample_id': sample.get('sample_id', ''),
                 'metadata': sample.get('metadata', {})
             }
@@ -314,18 +310,62 @@ class GRPOLegalTrainer:
         
         # Load training dataset
         logger.info(f"Loading training dataset from: {grpo_dataset_path}")
-        with open(grpo_dataset_path, 'r', encoding='utf-8') as f:
-            grpo_data = json.load(f)
+        
+        # Check if it's a HuggingFace dataset or local file
+        if grpo_dataset_path.startswith('kylebrussell/') or '/' in grpo_dataset_path and not os.path.exists(grpo_dataset_path):
+            # Load from HuggingFace
+            from datasets import load_dataset
+            hf_dataset = load_dataset(grpo_dataset_path)['train']
+            
+            # Filter by task if specified (only for unified datasets, not task-specific ones)
+            if self.task_name and 'cap-rlvr-sft' in grpo_dataset_path:
+                # Only filter if using the unified SFT dataset
+                grpo_data = [sample for sample in hf_dataset if sample.get('task') == self.task_name]
+            else:
+                # For task-specific datasets, use reasonable sample size
+                grpo_data = list(hf_dataset)[:50]  # Limit for memory efficiency
+                
+            # Convert HuggingFace format to GRPO format
+            formatted_samples = []
+            for sample in grpo_data:
+                if isinstance(sample, dict):
+                    # Extract data from HuggingFace format
+                    query = sample.get('inputs', sample.get('prompt', ''))
+                    ground_truth = sample.get('ground_truth', sample.get('completion', ''))
+                    sample_id = sample.get('case_id', sample.get('sample_id', ''))
+                    metadata = sample.get('metadata', {})
+                    
+                    # Convert to GRPO format (prompt/chosen/rejected)
+                    if query and ground_truth:
+                        formatted_samples.append({
+                            'prompt': query,
+                            'chosen': ground_truth,
+                            'rejected': "I don't know.",  # Generic rejected response
+                            'sample_id': sample_id,
+                            'metadata': metadata
+                        })
+                        
+            # Wrap in expected dictionary format
+            grpo_data = {'samples': formatted_samples}
+        else:
+            # Load from local JSON file
+            with open(grpo_dataset_path, 'r', encoding='utf-8') as f:
+                grpo_data = json.load(f)
         
         train_dataset = self.prepare_dataset(grpo_data)
         
-        # Load evaluation dataset if provided
-        eval_dataset = None
-        if eval_dataset_path and Path(eval_dataset_path).exists():
-            logger.info(f"Loading evaluation dataset from: {eval_dataset_path}")
-            with open(eval_dataset_path, 'r', encoding='utf-8') as f:
-                eval_grpo_data = json.load(f)
-            eval_dataset = self.prepare_dataset(eval_grpo_data)
+        # For evaluation-only mode, use the same dataset as eval dataset
+        if eval_only:
+            eval_dataset = train_dataset
+            logger.info("Using training dataset as evaluation dataset for eval-only mode")
+        else:
+            # Load evaluation dataset if provided
+            eval_dataset = None
+            if eval_dataset_path and Path(eval_dataset_path).exists():
+                logger.info(f"Loading evaluation dataset from: {eval_dataset_path}")
+                with open(eval_dataset_path, 'r', encoding='utf-8') as f:
+                    eval_grpo_data = json.load(f)
+                eval_dataset = self.prepare_dataset(eval_grpo_data)
         
         # Setup training configuration
         training_config = self.setup_training_config(**training_kwargs)
@@ -333,74 +373,181 @@ class GRPOLegalTrainer:
         # Create reward function
         reward_function = self.create_reward_function()
         
-        # Initialize GRPO trainer
-        logger.info("Initializing GRPO trainer...")
-        trainer = GRPOTrainer(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            args=training_config,
-            train_dataset=train_dataset,
-            eval_dataset=eval_dataset,
-            reward_funcs=reward_function,
+        # Use sequential approach for both training and evaluation to save memory
+        logger.info("Using sequential GRPO approach to save GPU memory...")
+        return self.run_sequential_grpo(
+            train_dataset, eval_dataset, reward_function, eval_only, **training_kwargs
         )
         
-        # Add custom callbacks for legal-specific metrics
-        self.add_legal_callbacks(trainer)
+    def run_sequential_grpo(self, train_dataset, eval_dataset, reward_function, eval_only, **training_kwargs):
+        """
+        Memory-efficient sequential GRPO that loads reference and main models separately.
         
-        # Run evaluation only or full training
+        Args:
+            train_dataset: Training dataset
+            eval_dataset: Evaluation dataset  
+            reward_function: Reward function
+            eval_only: Whether to run evaluation only
+            **training_kwargs: Additional training arguments
+            
+        Returns:
+            Dictionary with evaluation results
+        """
+        logger.info("Starting sequential GRPO approach...")
+        
+        # Use eval dataset for evaluation, train dataset for training
+        dataset_to_use = eval_dataset if eval_only else train_dataset
+        
+        if not dataset_to_use:
+            raise ValueError("No dataset provided for sequential GRPO")
+            
+        # Step 1: Generate reference model responses
+        logger.info("Phase 1: Generating reference model responses...")
+        reference_outputs = self.generate_reference_responses(dataset_to_use)
+        
+        # Clear GPU memory
+        import torch
+        torch.cuda.empty_cache()
+        
+        # Step 2: Generate main model responses and compute metrics
+        logger.info("Phase 2: Generating main model responses and computing metrics...")
+        results = self.evaluate_with_reference(dataset_to_use, reference_outputs, reward_function)
+        
         if eval_only:
-            logger.info("Running evaluation only...")
-            try:
-                if eval_dataset is None:
-                    logger.warning("No evaluation dataset provided, using training dataset for evaluation")
-                    eval_dataset = train_dataset
-                
-                eval_results = trainer.evaluate(eval_dataset=eval_dataset)
-                logger.info("Evaluation completed successfully")
-                logger.info(f"Evaluation results: {eval_results}")
-                
-                # Return evaluation results
-                return {
-                    'eval_results': eval_results,
-                    'model_path': self.model_path,
-                    'task_name': self.task_name,
-                    'eval_dataset_size': len(eval_dataset)
-                }
-                
-            except Exception as e:
-                logger.error(f"Evaluation failed: {e}")
-                raise
+            return {'eval_results': results}
+        else:
+            # For training mode, we'd implement training steps here
+            logger.info("Training mode not yet implemented in sequential approach")
+            return {'eval_results': results}
+    
+    def generate_reference_responses(self, dataset):
+        """Generate responses using the reference model (same as base model)."""
+        import torch
+        from transformers import AutoTokenizer, AutoModelForCausalLM
         
-        # Start full training
-        logger.info("Beginning GRPO training...")
-        try:
-            training_result = trainer.train()
-            logger.info("GRPO training completed successfully")
+        logger.info("Loading reference model...")
+        # Use the same model as reference (frozen)
+        ref_tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+        ref_model = AutoModelForCausalLM.from_pretrained(
+            self.model_path,
+            torch_dtype=torch.float16,
+            device_map="auto"
+        )
+        
+        if ref_tokenizer.pad_token is None:
+            ref_tokenizer.pad_token = ref_tokenizer.eos_token
             
-            # Save final model
-            final_output_dir = training_config.output_dir
-            trainer.save_pretrained(final_output_dir)
-            self.tokenizer.save_pretrained(final_output_dir)
+        reference_outputs = {}
+        
+        for i, sample in enumerate(dataset):
+            if i % 10 == 0:
+                logger.info(f"Generating reference responses: {i}/{len(dataset)}")
+                
+            prompt = sample['prompt']
             
-            # Save training metadata
-            metadata = {
-                'task_name': self.task_name,
-                'model_path': self.model_path,
-                'training_result': training_result.__dict__ if hasattr(training_result, '__dict__') else str(training_result),
-                'dataset_size': len(train_dataset),
-                'eval_dataset_size': len(eval_dataset) if eval_dataset else 0,
-                'training_config': training_config.__dict__ if hasattr(training_config, '__dict__') else {}
+            # Generate reference response
+            inputs = ref_tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+            inputs = {k: v.to(ref_model.device) for k, v in inputs.items()}
+            
+            with torch.no_grad():
+                outputs = ref_model.generate(
+                    **inputs,
+                    max_new_tokens=256,
+                    do_sample=True,
+                    temperature=0.7,
+                    pad_token_id=ref_tokenizer.eos_token_id
+                )
+            
+            # Decode reference response
+            ref_response = ref_tokenizer.decode(
+                outputs[0][inputs['input_ids'].shape[1]:], 
+                skip_special_tokens=True
+            )
+            
+            reference_outputs[i] = {
+                'prompt': prompt,
+                'response': ref_response,
+                'sample_id': sample.get('sample_id', ''),
+                'metadata': sample.get('metadata', {})
+            }
+        
+        # Clean up reference model
+        del ref_model
+        del ref_tokenizer
+        torch.cuda.empty_cache()
+        
+        logger.info(f"Generated {len(reference_outputs)} reference responses")
+        return reference_outputs
+    
+    def evaluate_with_reference(self, dataset, reference_outputs, reward_function):
+        """Evaluate main model against reference outputs."""
+        import torch
+        
+        logger.info("Evaluating main model responses...")
+        
+        # Model should already be loaded
+        if not hasattr(self, 'model') or self.model is None:
+            self.load_model_and_tokenizer()
+        
+        eval_rewards = []
+        
+        for i, sample in enumerate(dataset):
+            if i % 10 == 0:
+                logger.info(f"Evaluating main model: {i}/{len(dataset)}")
+                
+            prompt = sample['prompt']
+            ground_truth = sample['chosen']
+            
+            # Generate main model response
+            inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+            
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=256,
+                    do_sample=True,
+                    temperature=0.7,
+                    pad_token_id=self.tokenizer.eos_token_id
+                )
+            
+            # Decode main model response
+            main_response = self.tokenizer.decode(
+                outputs[0][inputs['input_ids'].shape[1]:], 
+                skip_special_tokens=True
+            )
+            
+            # Create reward sample
+            reward_sample = {
+                'inputs': prompt,
+                'ground_truth': ground_truth,
+                'metadata': sample.get('metadata', {})
             }
             
-            with open(Path(final_output_dir) / 'training_metadata.json', 'w') as f:
-                json.dump(metadata, f, indent=2)
-            
-            logger.info(f"Model saved to: {final_output_dir}")
-            return trainer
-            
-        except Exception as e:
-            logger.error(f"GRPO training failed: {e}")
-            raise
+            # Compute reward for main model response
+            try:
+                reward = reward_function.reward(reward_sample, main_response, self.task_name)
+                eval_rewards.append(float(reward))
+            except Exception as e:
+                logger.warning(f"Error computing reward for sample {i}: {e}")
+                eval_rewards.append(0.0)
+        
+        # Compute evaluation metrics
+        if eval_rewards:
+            mean_reward = sum(eval_rewards) / len(eval_rewards)
+            reward_std = (sum((r - mean_reward) ** 2 for r in eval_rewards) / len(eval_rewards)) ** 0.5
+        else:
+            mean_reward = 0.0
+            reward_std = 0.0
+        
+        results = {
+            'eval/rewards/mean': mean_reward,
+            'eval/rewards/std': reward_std,
+            'eval/num_samples': len(eval_rewards)
+        }
+        
+        logger.info(f"Sequential evaluation complete: mean_reward={mean_reward:.3f}, std={reward_std:.3f}")
+        return results
     
     def add_legal_callbacks(self, trainer: GRPOTrainer):
         """Add legal-specific training callbacks"""

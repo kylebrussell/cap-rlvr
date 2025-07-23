@@ -71,21 +71,13 @@ class StageProgressionValidator:
             faiss_index_path=self.faiss_index_path
         )
         
-        # Find evaluation dataset
-        eval_data_path = Path(f'../data_grpo/{task}/eval_grpo.json')
-        if not eval_data_path.exists():
-            # Fallback to training data
-            eval_data_path = Path(f'../data_grpo/{task}/train_grpo.json')
-            logger.warning(f"Using training data for evaluation: {eval_data_path}")
-        
-        if not eval_data_path.exists():
-            logger.error(f"No evaluation data found for task {task}")
-            return {'valid': False, 'error': 'No evaluation data'}
+        # Use task-specific HuggingFace dataset for faster loading
+        eval_data_path = f"kylebrussell/cap-rlvr-{task}"
         
         try:
             # Run evaluation
             eval_result = trainer.train(
-                grpo_dataset_path=str(eval_data_path),
+                grpo_dataset_path=eval_data_path,
                 eval_only=True
             )
             
@@ -174,20 +166,13 @@ class StageProgressionValidator:
             faiss_index_path=self.faiss_index_path
         )
         
-        # Find unified evaluation dataset
-        eval_data_path = Path('../data_grpo/unified/eval_grpo.json')
-        if not eval_data_path.exists():
-            eval_data_path = Path('../data_grpo/unified/train_grpo.json')
-            logger.warning(f"Using training data for evaluation: {eval_data_path}")
-        
-        if not eval_data_path.exists():
-            logger.error("No unified evaluation data found")
-            return {'valid': False, 'error': 'No unified evaluation data'}
+        # Use HuggingFace dataset for unified evaluation
+        eval_data_path = "kylebrussell/cap-rlvr-sft"
         
         try:
             # Run evaluation
             eval_result = trainer.train(
-                grpo_dataset_path=str(eval_data_path),
+                grpo_dataset_path=eval_data_path,
                 eval_only=True
             )
             
