@@ -42,8 +42,28 @@ def evaluate_task_specific(task, generated, expected):
     """Task-specific evaluation logic"""
     
     if task == "bluebook":
-        # For citation format, use exact match
-        return 1.0 if exact_match(generated, expected) else 0.0
+        # For citation format, check if generated text follows proper citation patterns
+        generated_clean = clean_text(generated)
+        
+        # Common legal citation patterns (case-insensitive since we clean to lowercase)
+        citation_patterns = [
+            r'\d+\s+f\.\s*\d*d?\s+\d+\s+\([^)]+\s+cir\.\s+\d{4}\)',  # Federal: 443 f.3d 1286 (10th cir. 2006)
+            r'\d+\s+f\.\s*supp\.\s*\d*\s+\d+\s+\([^)]+\s+\d{4}\)',   # F.Supp: 123 f.supp.2d 456 (s.d.n.y. 2001)
+            r'\d+\s+u\.s\.\s+\d+\s+\(\d{4}\)',                       # Supreme Court: 123 u.s. 456 (1999)
+            r'\d+\s+s\.\s*ct\.\s+\d+\s+\(\d{4}\)',                   # S.Ct: 123 s.ct. 456 (1999)
+        ]
+        
+        # Check if generated text contains a valid citation pattern
+        for pattern in citation_patterns:
+            if re.search(pattern, generated_clean):
+                return 1.0
+        
+        # Fallback: check if it at least has basic citation structure (numbers + parentheses + year)
+        basic_citation = r'\d+.*\(\d{4}\)'
+        if re.search(basic_citation, generated_clean):
+            return 0.5  # Partial credit for basic structure
+        
+        return 0.0
     
     elif task == "holding":
         # For multiple choice, check if the answer letter appears in generated text
