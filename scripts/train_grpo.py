@@ -526,7 +526,8 @@ class GRPOLegalTrainer:
             
             # Compute reward for main model response
             try:
-                reward = reward_function.reward(reward_sample, main_response, self.task_name)
+                # reward_function is callable, not an object with .reward method
+                reward = self.reward_fn.reward(reward_sample, main_response, self.task_name)
                 eval_rewards.append(float(reward))
             except Exception as e:
                 logger.warning(f"Error computing reward for sample {i}: {e}")
