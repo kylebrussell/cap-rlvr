@@ -94,10 +94,19 @@ ps aux | grep train_sft_simple
 nvidia-smi --query-gpu=index,memory.used,memory.total --format=csv -l 5
 ```
 
+## Trained Models
+**Available SFT Models on Lambda H100s:**
+- `models/sft_qwen3_14b_lora_10k` - Working LoRA model (10K samples subset)
+- `models/sft_qwen3_14b_lora_production_final` - Empty directory (training incomplete)
+
+**Validation Results:**
+- **Base Model (Qwen/Qwen3-14B)**: 0.152 mean reward (15.2% - FAIL)
+- **SFT Model**: Validation in progress
+
 ## Next Steps
 1. ✅ Verify all 5 task types generated successfully  
 2. ✅ Build FAISS index for retrieval task
 3. ✅ Upload datasets to HuggingFace
-4. 🔄 Complete SFT warm-start training with LoRA on Qwen3-14B (running on Lambda H100s)
-5. Run reward function tests on sample outputs
+4. ✅ Complete SFT warm-start training with LoRA on Qwen3-14B
+5. 🔄 Run validation comparisons between base and SFT models
 6. Implement GRPO training pipeline with process supervision

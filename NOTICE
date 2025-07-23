@@ -1,0 +1,36 @@
+CAP RLVR (Caselaw Access Project Reinforcement Learning with Verifiable Rewards)
+Copyright 2024 Kyle Russell
+
+This project includes software and data from the following sources:
+
+================================================================================
+
+Qwen Models
+Copyright Alibaba Cloud
+Licensed under the Apache License, Version 2.0
+https://huggingface.co/Qwen/
+
+This project uses Qwen/Qwen3-14B and related models as base models for 
+fine-tuning. The original models are available under Apache 2.0 license.
+
+================================================================================
+
+Caselaw Access Project (CAP) Data
+Harvard Law School Library Innovation Lab
+https://case.law/
+
+This project uses legal case data from the Caselaw Access Project, which 
+digitizes U.S. court decisions. The legal case texts are public domain 
+government documents. We acknowledge Harvard Law School's digitization effort.
+
+================================================================================
+
+PyTorch and Transformers
+This project uses PyTorch, Transformers, TRL, and other open-source libraries.
+See requirements files for complete dependency information and their respective licenses.
+
+================================================================================
+
+Original Work
+The training scripts, reward functions, gym environments, and GRPO implementation
+are original work developed for legal AI research and released under Apache 2.0.
