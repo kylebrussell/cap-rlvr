@@ -76,8 +76,8 @@ cap-rlvr/
    reward = env.step("A")[1]  # Model chooses option A
    ```
 
-### Remote Data Preparation (Vast.ai)
-4. **Setup Environment**: Use `scripts/vast_setup.sh` on a remote system with sufficient storage (80GB+ for CAP dataset)
+### Remote Data Preparation (CPU Instances)
+4. **Setup Environment**: Use `scripts/vast_setup.sh` on a remote CPU instance with sufficient storage (80GB+ for CAP dataset)
 5. **Download Dataset**: Run `downloads/cli_download.py` for robust CAP dataset acquisition
 6. **Prepare Tasks**: Execute all `scripts/prep_*.py` scripts to generate training data (use `prep_retrieval_task_streaming.py` for memory efficiency)
 7. **Build Embeddings**: Run `scripts/build_faiss.py` to create retrieval index
@@ -97,39 +97,39 @@ python scripts/prep_retrieval_task_streaming.py
 # - Two-phase processing: index building → task generation
 ```
 
-### Data Migration (Vast.ai → Lambda Labs)
-9. **Transfer Data**: Copy prepared datasets to Lambda Labs filesystem with `scripts/migrate_to_lambda.py`
+### Data Migration (CPU → GPU Instances)
+9. **Transfer Data**: Copy prepared datasets to GPU training environment with `scripts/migrate_to_lambda.py`
 
-### Training Pipeline (Lambda Labs)
-10. **H100-Optimized LoRA SFT**: Parameter-efficient fine-tuning with large batches on 2x H100-80GB GPUs
-    - **Current Status**: ✅ Training running overnight with 1M samples (ETA: 7-8 AM)
-    - **Configuration**: FP16, 4 per GPU batch size, 64 effective batch size
-    - **Dataset**: Fixed tokenization compatibility for 9.9M sample SFT dataset
+### Training Pipeline (GPU Instances)
+10. **LoRA SFT Training**: Parameter-efficient fine-tuning with optimized configurations for available GPU memory
 11. **Generate GRPO Data**: Create multi-response datasets with `scripts/prep_grpo_dataset.py` using SFT model
 12. **GRPO Training**: Execute reinforcement learning with `scripts/train_grpo.py` using the generated datasets
 
-### Memory-Optimized LoRA Training
-For A6000 GPU instances (50GB VRAM), use the optimized LoRA approach:
+### LoRA Training Configuration
+
+The project supports various GPU configurations with optimized LoRA settings:
 
 ```bash
 # Memory-efficient LoRA training with streaming datasets
-python scripts/train_sft_lora.py \
-  --model_name Qwen/Qwen3-14B \
-  --train_file data_tasks/sft_formatted/unified/train_sft_unified.jsonl \
-  --eval_file data_tasks/sft_formatted/unified/eval_sft_unified.jsonl \
-  --output_dir models/sft_qwen3_14b_lora \
-  --max_samples 50000  # Start with subset for testing
+python scripts/train_sft_simple.py \
+  --dataset_name kylebrussell/cap-rlvr-sft \
+  --per_device_train_batch_size 4 \
+  --gradient_accumulation_steps 8 \
+  --num_train_epochs 1 \
+  --output_dir models/sft_qwen3_14b_lora
 
-# For development/testing with minimal resources
-python scripts/train_sft_lora.py --max_samples 1000
+# For development/testing with subset
+python scripts/train_sft_simple.py \
+  --dataset_name kylebrussell/cap-rlvr-sft \
+  --max_samples 10000 \
+  --per_device_train_batch_size 2 \
+  --gradient_accumulation_steps 4
 ```
 
 **LoRA Optimizations:**
-- **Memory Reduction**: 94GB → 25GB (73% reduction from full fine-tuning)
-- **Streaming Datasets**: No loading of full dataset into memory
-- **Conservative Batching**: batch_size=1, gradient_accumulation=8
-- **Reduced Context**: max_length=1024 tokens (vs 2048)
 - **Parameter Efficiency**: Only 0.43% of model parameters trainable (64M/14.8B)
+- **Memory Efficient**: Significant reduction from full fine-tuning
+- **Flexible Batching**: Configurable batch sizes based on available GPU memory
 - **Quality Retention**: 85-95% of full fine-tuning performance
 
 ## Key Features
@@ -381,11 +381,12 @@ models/
 
 Based on the **Caselaw Access Project (CAP)** containing millions of US court decisions, processed into structured training tasks for legal reasoning.
 
-**Current Status**: ✅ All datasets downloaded and cached on Lambda H100 instance
-- `cap-rlvr-holding`: 20K train, 2.5K val/test  
-- `cap-rlvr-bluebook`: 253K train, 32K val/test
-- `cap-rlvr-summarise`: 4.4M train, 555K val/test
-- `cap-rlvr-sft`: 9.9M train, 1.2M val/test (33GB cached)
+**Available on HuggingFace:**
+- `kylebrussell/cap-rlvr-holding`: 20K train, 2.5K val/test  
+- `kylebrussell/cap-rlvr-bluebook`: 253K train, 32K val/test
+- `kylebrussell/cap-rlvr-summarise`: 4.4M train, 555K val/test
+- `kylebrussell/cap-rlvr-sft`: 9.9M train, 1.2M val/test (multi-task dataset)
+- `kylebrussell/cap-rlvr-retrieval`: Includes FAISS embeddings for case retrieval
 
 See `docs/cap_rlvr_grpo_plan.md` for the complete implementation plan and training details.
 
