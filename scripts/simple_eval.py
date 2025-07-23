@@ -86,11 +86,9 @@ def evaluate_model(model_path, task_filter=None, num_samples=100, dataset_name="
             response = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
             
             # Compute reward
-            reward_sample = {
-                'inputs': prompt,
-                'ground_truth': ground_truth,
-                'metadata': sample.get('metadata', {})
-            }
+            # Preserve original sample structure for compatibility
+            reward_sample = sample.copy()
+            reward_sample['inputs'] = prompt
             
             try:
                 reward = reward_fn.reward(reward_sample, response, task)
