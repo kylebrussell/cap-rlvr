@@ -1,0 +1,67 @@
+2025-07-23 13:52:31.652970: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2025-07-23 13:52:31.667212: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:467] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1753278751.684296   37409 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1753278751.689908   37409 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1753278751.704316   37409 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1753278751.704417   37409 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1753278751.704482   37409 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1753278751.704539   37409 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+2025-07-23 13:52:31.708348: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX512F AVX512_VNNI AVX512_BF16 AVX512_FP16 AVX_VNNI, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2025-07-23 13:52:35,051 - __main__ - INFO - Stage Progression Validator initialized
+2025-07-23 13:52:35,051 - __main__ - INFO - Validating bluebook model for Stage 0 progression
+2025-07-23 13:52:35,413 - train_grpo - INFO - GRPO Legal Trainer initialized
+2025-07-23 13:52:35,413 - train_grpo - INFO - Model path: Qwen/Qwen3-14B (14B)
+2025-07-23 13:52:35,413 - train_grpo - INFO - Task: bluebook
+2025-07-23 13:52:35,413 - train_grpo - INFO - Device: cuda
+2025-07-23 13:52:35,413 - train_grpo - INFO - Output directory: models/grpo/qwen3-14b/grpo/bluebook
+2025-07-23 13:52:35,413 - train_grpo - INFO - Starting GRPO training...
+2025-07-23 13:52:35,415 - train_grpo - INFO - Loading model and tokenizer...
+Loading checkpoint shards:   0%|          | 0/8 [00:00<?, ?it/s]Loading checkpoint shards:  12%|█▎        | 1/8 [00:00<00:05,  1.27it/s]Loading checkpoint shards:  25%|██▌       | 2/8 [00:01<00:04,  1.23it/s]Loading checkpoint shards:  38%|███▊      | 3/8 [00:02<00:03,  1.26it/s]Loading checkpoint shards:  50%|█████     | 4/8 [00:03<00:03,  1.27it/s]Loading checkpoint shards:  62%|██████▎   | 5/8 [00:03<00:02,  1.28it/s]Loading checkpoint shards:  75%|███████▌  | 6/8 [00:04<00:01,  1.29it/s]Loading checkpoint shards:  88%|████████▊ | 7/8 [00:05<00:00,  1.26it/s]Loading checkpoint shards: 100%|██████████| 8/8 [00:05<00:00,  1.53it/s]Loading checkpoint shards: 100%|██████████| 8/8 [00:05<00:00,  1.36it/s]
+2025-07-23 13:52:42,489 - train_grpo - INFO - Model and tokenizer loaded successfully
+2025-07-23 13:52:42,489 - train_grpo - INFO - Loading training dataset from: kylebrussell/cap-rlvr-bluebook
+Repo card metadata block was not found. Setting CardData to empty.
+2025-07-23 13:52:42,721 - huggingface_hub.repocard - WARNING - Repo card metadata block was not found. Setting CardData to empty.
+2025-07-23 13:52:52,135 - train_grpo - INFO - Preparing dataset for GRPO training...
+2025-07-23 13:52:52,135 - train_grpo - INFO - Prepared 50 samples for training
+2025-07-23 13:52:52,143 - train_grpo - INFO - Using training dataset as evaluation dataset for eval-only mode
+2025-07-23 13:52:52,146 - train_grpo - INFO - GRPO Config: {
+  "output_dir": "models/grpo/qwen3-14b/grpo/bluebook/bluebook_grpo",
+  "per_device_train_batch_size": 2,
+  "per_device_eval_batch_size": 4,
+  "num_train_epochs": 3,
+  "learning_rate": 1e-05,
+  "weight_decay": 0.01,
+  "warmup_steps": 100,
+  "gradient_accumulation_steps": 8,
+  "dataloader_num_workers": 4,
+  "remove_unused_columns": false,
+  "save_strategy": "steps",
+  "save_steps": 500,
+  "eval_strategy": "steps",
+  "eval_steps": 500,
+  "logging_strategy": "steps",
+  "logging_steps": 50,
+  "load_best_model_at_end": true,
+  "metric_for_best_model": "eval/rewards/mean",
+  "greater_is_better": true,
+  "seed": 42,
+  "data_seed": 42,
+  "bf16": true,
+  "report_to": null,
+  "push_to_hub": false,
+  "temperature": 0.7,
+  "beta": 0.1,
+  "num_generations": 4,
+  "max_prompt_length": 1024,
+  "max_completion_length": 512
+}
+2025-07-23 13:52:52,175 - train_grpo - INFO - Using sequential GRPO approach to save GPU memory...
+2025-07-23 13:52:52,176 - train_grpo - INFO - Starting sequential GRPO approach...
+2025-07-23 13:52:52,176 - train_grpo - INFO - Phase 1: Generating reference model responses...
+2025-07-23 13:52:52,176 - train_grpo - INFO - Loading reference model...
+Loading checkpoint shards:   0%|          | 0/8 [00:00<?, ?it/s]Loading checkpoint shards:  12%|█▎        | 1/8 [00:00<00:05,  1.35it/s]Loading checkpoint shards:  25%|██▌       | 2/8 [00:01<00:04,  1.30it/s]Loading checkpoint shards:  38%|███▊      | 3/8 [00:02<00:03,  1.29it/s]Loading checkpoint shards:  50%|█████     | 4/8 [00:03<00:03,  1.28it/s]Loading checkpoint shards:  62%|██████▎   | 5/8 [00:03<00:02,  1.28it/s]Loading checkpoint shards:  75%|███████▌  | 6/8 [00:04<00:01,  1.27it/s]Loading checkpoint shards:  88%|████████▊ | 7/8 [00:05<00:00,  1.26it/s]Loading checkpoint shards: 100%|██████████| 8/8 [00:05<00:00,  1.52it/s]Loading checkpoint shards: 100%|██████████| 8/8 [00:05<00:00,  1.37it/s]
+2025-07-23 13:52:58,744 - train_grpo - INFO - Generating reference responses: 0/50
+2025-07-23 13:54:33,503 - train_grpo - INFO - Generating reference responses: 10/50
+2025-07-23 13:56:07,640 - train_grpo - INFO - Generating reference responses: 20/50
