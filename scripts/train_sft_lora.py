@@ -94,32 +94,37 @@ class LegalReasoningLoRATrainer:
         logger.info(f"📊 Total parameters: {total_params:,}")
         logger.info(f"📊 Trainable ratio: {100 * trainable_params / total_params:.2f}%")
     
-    def load_dataset(self, train_file: str, eval_file: str, max_samples: int = None):
-        """Load and prepare training datasets"""
-        logger.info(f"📊 Loading training data from {train_file}")
+    def load_dataset_streaming(self, train_file: str, eval_file: str, max_samples: int = None):
+        """Load datasets with memory-efficient streaming approach"""
+        from datasets import load_dataset
         
-        train_data = []
-        with open(train_file, 'r') as f:
-            for i, line in enumerate(f):
-                if max_samples and i >= max_samples:
-                    break
-                train_data.append(json.loads(line))
+        logger.info(f"📊 Loading training data from {train_file} (streaming mode)")
         
-        logger.info(f"📊 Loading evaluation data from {eval_file}")
-        eval_data = []
-        with open(eval_file, 'r') as f:
-            for i, line in enumerate(f):
-                if max_samples and i >= max_samples // 10:  # 10% of train size for eval
-                    break
-                eval_data.append(json.loads(line))
+        # Use streaming dataset to avoid loading everything into memory
+        train_dataset = load_dataset(
+            "json", 
+            data_files=train_file, 
+            split="train",
+            streaming=True
+        )
         
-        self.train_dataset = Dataset.from_list(train_data)
-        self.eval_dataset = Dataset.from_list(eval_data)
+        eval_dataset = load_dataset(
+            "json", 
+            data_files=eval_file, 
+            split="train", 
+            streaming=True
+        )
         
-        logger.info(f"📈 Train samples: {len(self.train_dataset):,}")
-        logger.info(f"📊 Eval samples: {len(self.eval_dataset):,}")
+        # Take only the requested number of samples
+        if max_samples:
+            train_dataset = train_dataset.take(max_samples)
+            eval_dataset = eval_dataset.take(max_samples // 10)
+            logger.info(f"📈 Train samples: {max_samples:,} (streaming)")
+            logger.info(f"📊 Eval samples: {max_samples // 10:,} (streaming)")
+        else:
+            logger.info(f"📈 Using full dataset (streaming mode)")
         
-        return self.train_dataset, self.eval_dataset
+        return train_dataset, eval_dataset
     
     def tokenize_function(self, examples):
         """Tokenize text with proper truncation and padding"""
@@ -127,7 +132,7 @@ class LegalReasoningLoRATrainer:
             examples["text"],
             truncation=True,
             padding=False,
-            max_length=2048,
+            max_length=1024,  # Reduced for memory efficiency
             return_tensors=None
         )
         tokenized["labels"] = tokenized["input_ids"].copy()
@@ -138,9 +143,9 @@ class LegalReasoningLoRATrainer:
         return TrainingArguments(
             output_dir=self.output_dir,
             num_train_epochs=3,
-            per_device_train_batch_size=4,  # Increased due to LoRA efficiency
-            per_device_eval_batch_size=4,
-            gradient_accumulation_steps=2,  # Reduced due to larger batch size
+            per_device_train_batch_size=1,  # Minimal batch size for memory
+            per_device_eval_batch_size=1,
+            gradient_accumulation_steps=8,  # Larger accumulation for effective batch size
             learning_rate=1e-4,  # Slightly higher for LoRA
             weight_decay=0.01,
             warmup_ratio=0.1,
@@ -153,7 +158,7 @@ class LegalReasoningLoRATrainer:
             metric_for_best_model="eval_loss",
             greater_is_better=False,
             bf16=True,
-            dataloader_num_workers=4,
+            dataloader_num_workers=0,  # No multiprocessing to save memory
             remove_unused_columns=False,
             report_to="none",
             gradient_checkpointing=True,  # Additional memory savings
@@ -166,8 +171,8 @@ class LegalReasoningLoRATrainer:
         # Setup model and tokenizer
         self.setup_model_and_tokenizer()
         
-        # Load and tokenize datasets
-        train_dataset, eval_dataset = self.load_dataset(train_file, eval_file, max_samples)
+        # Load datasets with streaming for memory efficiency
+        train_dataset, eval_dataset = self.load_dataset_streaming(train_file, eval_file, max_samples)
         
         logger.info("🔤 Tokenizing datasets...")
         tokenized_train = train_dataset.map(
