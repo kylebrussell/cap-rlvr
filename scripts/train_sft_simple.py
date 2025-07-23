@@ -96,19 +96,14 @@ def prepare_dataset(dataset_name, tokenizer, max_samples=None, max_length=1024):
             text = f"{prompt}\n{completion}{tokenizer.eos_token}"
             texts.append(text)
         
-        # Tokenize with error handling
-        try:
-            return tokenizer(
-                texts,
-                truncation=True,
-                padding=False,
-                max_length=max_length,
-                return_tensors=None
-            )
-        except Exception as e:
-            logger.error(f"Tokenization error: {e}")
-            # Return empty tokenization if failed
-            return {'input_ids': [], 'attention_mask': []}
+        # Tokenize with proper settings for training
+        return tokenizer(
+            texts,
+            truncation=True,
+            padding=True,
+            max_length=max_length,
+            return_tensors=None
+        )
     
     # Tokenize datasets
     logger.info("Tokenizing datasets...")
@@ -167,7 +162,7 @@ def main():
         save_total_limit=3,
         
         # Evaluation
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         eval_steps=args.save_steps,
         
         # Memory optimization for H100s
@@ -185,12 +180,9 @@ def main():
         load_best_model_at_end=False,
     )
     
-    # Data collator
-    data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm=False,
-        pad_to_multiple_of=8
-    )
+    # Simple data collator since we're already padding in tokenization
+    from transformers import default_data_collator
+    data_collator = default_data_collator
     
     # Calculate effective batch size
     num_gpus = torch.cuda.device_count()
