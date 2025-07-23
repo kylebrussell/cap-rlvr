@@ -19,22 +19,22 @@ cap-rlvr/
 │   ├── prep_bluebook_task.py   # Generate citation format tasks
 │   ├── prep_summarise_task.py  # Generate IRAC summarization tasks
 │   ├── prep_retrieval_task.py  # Generate case retrieval tasks (original)
-│   ├── prep_retrieval_task_streaming.py  # ✅ Memory-optimized streaming retrieval (SQLite-based)
+│   ├── prep_retrieval_task_streaming.py  # Memory-optimized streaming retrieval (SQLite-based)
 │   ├── prep_entail_task.py     # Generate case relationship tasks
 │   ├── build_faiss.py          # Build FAISS index for retrieval evaluation
-│   ├── format_for_sft.py       # ✅ Format task data for SFT training (TRL-compatible)
-│   ├── migrate_to_lambda.py    # ✅ Automated Vast.ai -> Lambda Labs migration
-│   ├── prep_grpo_dataset.py    # ✅ Generate GRPO training datasets with scored responses
-│   ├── train_grpo.py           # ✅ Complete GRPO training implementation with eval-only mode
-│   ├── validate_stage_progression.py # ✅ NEW: Validate reward thresholds for stage progression
-│   ├── orchestrate_grpo_training.py  # ✅ NEW: Automated multi-stage training pipeline
+│   ├── format_for_sft.py       # Format task data for SFT training (TRL-compatible)
+│   ├── migrate_to_lambda.py    # Automated Vast.ai -> Lambda Labs migration
+│   ├── prep_grpo_dataset.py    # Generate GRPO training datasets with scored responses
+│   ├── train_grpo.py           # Complete GRPO training implementation with eval-only mode
+│   ├── validate_stage_progression.py # Validate reward thresholds for stage progression
+│   ├── orchestrate_grpo_training.py  # Automated multi-stage training pipeline
 │   ├── reward_holding.py       # Reward function for holding selection
 │   ├── reward_bluebook.py      # Reward function for citation completion
 │   ├── reward_irac.py          # Reward function for IRAC summarization
 │   ├── reward_retrieval.py     # Reward function for case retrieval
 │   ├── reward_entail.py        # Reward function for relationship classification
 │   └── rewards.py              # Unified reward interface for all tasks
-├── envs/                       # ✅ NEW: OpenAI Gym environments
+├── envs/                       # OpenAI Gym environments
 │   ├── __init__.py             # Environment package initialization
 │   ├── base_env.py             # Base environment class (BaseCapRLVREnv)
 │   ├── holding_env.py          # Holding selection environment
@@ -63,7 +63,7 @@ cap-rlvr/
 2. **Test Gym Environments**:
    ```bash
    python test_gym_envs.py
-   # Expected: ✅ 5/5 environments passed testing
+   # Expected: 5/5 environments passed testing
    ```
 
 3. **Use Individual Environments**:
@@ -134,14 +134,14 @@ python scripts/train_sft_simple.py \
 
 ## Key Features
 
-- **✅ Complete Gym Environments**: Full OpenAI Gym interface for all 5 legal reasoning tasks
-- **✅ RLHF/GRPO Ready**: Environments integrate seamlessly with reinforcement learning training
-- **✅ Automated Migration Pipeline**: Seamless Vast.ai → Lambda Labs data transfer with verification
-- **✅ TRL-Compatible SFT Formatting**: Ready-to-use prompt-completion datasets for supervised fine-tuning
-- **✅ Apache 2.0 Licensed**: Commercial-friendly licensing with proper attribution to dependencies
+- **Complete Gym Environments**: Full OpenAI Gym interface for all 5 legal reasoning tasks
+- **RLHF/GRPO Ready**: Environments integrate seamlessly with reinforcement learning training
+- **Automated Migration Pipeline**: Seamless Vast.ai → Lambda Labs data transfer with verification
+- **TRL-Compatible SFT Formatting**: Ready-to-use prompt-completion datasets for supervised fine-tuning
+- **Apache 2.0 Licensed**: Commercial-friendly licensing with proper attribution to dependencies
 - **Robust Dataset Download**: Multiple approaches for handling 78GB CAP dataset with resume capability
 - **Multi-Task Training Data**: 5 legal reasoning tasks (holdings, citations, summaries, retrieval, relationships)
-- **✅ Complete Reward System**: Deterministic scoring functions for all task types with unified interface
+- **Complete Reward System**: Deterministic scoring functions for all task types with unified interface
 - **Process Supervision**: GRPO training with group-based reward comparisons
 - **Production Ready**: Quantization, serving, and deployment pipeline included
 
@@ -174,7 +174,7 @@ score = reward_fn.reward(sample, model_output)  # Auto-detects task type
 
 ## Gym Environments
 
-**✅ Complete Implementation**: All 5 legal reasoning tasks have been implemented as OpenAI Gym environments.
+**Complete Implementation**: All 5 legal reasoning tasks have been implemented as OpenAI Gym environments.
 
 ### Environment Features
 - **Standard Gym Interface**: `reset()`, `step(action)`, `render()`, `close()`

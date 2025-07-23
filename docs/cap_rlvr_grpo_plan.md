@@ -343,7 +343,7 @@ entail_reward = EntailmentRewardFunction()
 
 ## 7. Gym Environments (Complete Implementation)
 
-**✅ COMPLETE**: All five gym environments have been implemented with full OpenAI Gym interface compatibility.
+**COMPLETE**: All five gym environments have been implemented with full OpenAI Gym interface compatibility.
 
 ### 7.1 Environment Structure
 
@@ -450,7 +450,7 @@ All environments have been tested and validated:
 # Test all environments
 python test_gym_envs.py
 
-# Results: ✅ 5/5 environments passed testing
+# Results: 5/5 environments passed testing
 # - Holding Selection Environment: ✓ PASSED
 # - Bluebook Citation Environment: ✓ PASSED  
 # - IRAC Summary Environment: ✓ PASSED
@@ -618,7 +618,7 @@ python -m trl.sft_trainer --model_name Qwen/Qwen3-14B-Instruct \
 
 ### Data Preparation for GRPO
 
-**✅ COMPLETE**: GRPO data preparation script has been fully implemented.
+**COMPLETE**: GRPO data preparation script has been fully implemented.
 
 GRPO requires generating multiple candidate responses per query and ranking them. This creates the process supervision dataset:
 
@@ -775,7 +775,7 @@ python scripts/train_grpo.py --task all --multi_task \
 
 #### Automated Training Orchestration
 
-**✅ COMPLETE**: Full automation support for multi-stage GRPO training has been implemented through comprehensive script enhancements.
+**COMPLETE**: Full automation support for multi-stage GRPO training has been implemented through comprehensive script enhancements.
 
 **Enhanced Scripts for Iterative Training:**
 
@@ -837,7 +837,7 @@ python scripts/prep_grpo_dataset.py --task all --unified_output \
 
 ### GRPO Training Implementation
 
-**✅ COMPLETE**: A production-ready GRPO training script has been implemented.
+**COMPLETE**: A production-ready GRPO training script has been implemented.
 
 The complete implementation is available as `scripts/train_grpo.py` with the following features:
 
@@ -892,16 +892,16 @@ python scripts/train_grpo.py --task bluebook --model_path models/sft \
 ```
 
 **Key Implementation Improvements:**
-- ✅ **Correct TRL API Usage**: Uses proper GRPOConfig and GRPOTrainer APIs
-- ✅ **Proper Model Loading**: Standard transformers model loading (not deprecated APIs)
-- ✅ **Dataset Preparation**: Converts GRPO JSON format to HuggingFace Dataset format
-- ✅ **Reward Function Integration**: Proper reward_funcs parameter usage
-- ✅ **Training Loop**: Uses trainer.train() method (not manual loops)
-- ✅ **Error Handling**: Comprehensive try/catch and validation
-- ✅ **Checkpointing**: Automatic saving and resumption capabilities
-- ✅ **Evaluation**: Optional evaluation dataset integration
-- ✅ **Logging**: Detailed logging with legal-specific metrics
-- ✅ **Memory Optimization**: Conservative batch sizes and gradient accumulation
+- **Correct TRL API Usage**: Uses proper GRPOConfig and GRPOTrainer APIs
+- **Proper Model Loading**: Standard transformers model loading (not deprecated APIs)
+- **Dataset Preparation**: Converts GRPO JSON format to HuggingFace Dataset format
+- **Reward Function Integration**: Proper reward_funcs parameter usage
+- **Training Loop**: Uses trainer.train() method (not manual loops)
+- **Error Handling**: Comprehensive try/catch and validation
+- **Checkpointing**: Automatic saving and resumption capabilities
+- **Evaluation**: Optional evaluation dataset integration
+- **Logging**: Detailed logging with legal-specific metrics
+- **Memory Optimization**: Conservative batch sizes and gradient accumulation
 
 ---
 
@@ -1098,13 +1098,13 @@ model.save_quantized('deploy/qwen_cap_rlvr_gptq')
 ### Initial Setup (Days 1-4)
 | Day | Deliverable                                 | Status |
 | --- | ------------------------------------------- | ------ |
-| 1   | CAP downloaded, scripts cloned              | ✅ |
-| 2   | Micro-tasks JSONL ready                     | ✅ |
-| 3   | **Reward functions + tests pass** | ✅ COMPLETE |
-| 3.5 | **Gym environments + integration** | ✅ COMPLETE |
-| 3.8 | **SFT formatting + migration pipeline** | ✅ COMPLETE |
-| 3.9 | **GRPO data prep + training scripts** | ✅ COMPLETE |
-| 4   | **Warm-start SFT complete (H100 optimized)** | ✅ COMPLETE |
+| 1   | CAP downloaded, scripts cloned              | COMPLETE |
+| 2   | Micro-tasks JSONL ready                     | COMPLETE |
+| 3   | **Reward functions + tests pass** | COMPLETE |
+| 3.5 | **Gym environments + integration** | COMPLETE |
+| 3.8 | **SFT formatting + migration pipeline** | COMPLETE |
+| 3.9 | **GRPO data prep + training scripts** | COMPLETE |
+| 4   | **Warm-start SFT complete (H100 optimized)** | COMPLETE |
 
 ### Multi-Stage GRPO Training (Days 5-10)
 
