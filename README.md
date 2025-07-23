@@ -138,6 +138,7 @@ python scripts/train_sft_lora.py --max_samples 1000
 - **✅ RLHF/GRPO Ready**: Environments integrate seamlessly with reinforcement learning training
 - **✅ Automated Migration Pipeline**: Seamless Vast.ai → Lambda Labs data transfer with verification
 - **✅ TRL-Compatible SFT Formatting**: Ready-to-use prompt-completion datasets for supervised fine-tuning
+- **✅ Apache 2.0 Licensed**: Commercial-friendly licensing with proper attribution to dependencies
 - **Robust Dataset Download**: Multiple approaches for handling 78GB CAP dataset with resume capability
 - **Multi-Task Training Data**: 5 legal reasoning tasks (holdings, citations, summaries, retrieval, relationships)
 - **✅ Complete Reward System**: Deterministic scoring functions for all task types with unified interface
@@ -387,3 +388,15 @@ Based on the **Caselaw Access Project (CAP)** containing millions of US court de
 - `cap-rlvr-sft`: 9.9M train, 1.2M val/test (33GB cached)
 
 See `docs/cap_rlvr_grpo_plan.md` for the complete implementation plan and training details.
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+### Third-Party Components
+
+- **Qwen Models**: Apache 2.0 License (Alibaba Cloud) - Base models for fine-tuning
+- **Caselaw Access Project**: Public domain legal case data (Harvard Law School)
+- **PyTorch & Dependencies**: Various open-source licenses - see requirements for details
+
+Commercial use is permitted. See [NOTICE](NOTICE) file for complete attribution information.
