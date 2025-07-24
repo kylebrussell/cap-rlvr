@@ -313,37 +313,41 @@ class GRPOLegalTrainer:
         
         # Check if it's a HuggingFace dataset or local file
         if grpo_dataset_path.startswith('kylebrussell/') or '/' in grpo_dataset_path and not os.path.exists(grpo_dataset_path):
-            # Load from HuggingFace
+            # Load from HuggingFace - NOTE: This should be a GRPO dataset, not SFT dataset
+            logger.warning("Loading from HuggingFace dataset - ensure this is a GRPO dataset with multiple responses")
             from datasets import load_dataset
             hf_dataset = load_dataset(grpo_dataset_path)['train']
             
-            # Filter by task if specified (only for unified datasets, not task-specific ones)
-            if self.task_name and 'cap-rlvr-sft' in grpo_dataset_path:
-                # Only filter if using the unified SFT dataset
-                grpo_data = [sample for sample in hf_dataset if sample.get('task') == self.task_name]
-            else:
-                # For task-specific datasets, use reasonable sample size
-                grpo_data = list(hf_dataset)[:50]  # Limit for memory efficiency
-                
-            # Convert HuggingFace format to GRPO format
+            # For GRPO training, we need datasets with multiple candidate responses
+            # This path should only be used with proper GRPO datasets
+            if 'cap-rlvr-sft' in grpo_dataset_path:
+                logger.error("Cannot use SFT dataset for GRPO training - need dataset with multiple candidate responses")
+                logger.error("Please use local GRPO dataset generated with prep_grpo_dataset.py")
+                raise ValueError("SFT dataset not compatible with GRPO training - need multiple responses per query")
+            
+            # If using a proper GRPO dataset from HuggingFace, process it
+            grpo_data = list(hf_dataset)[:50]  # Limit for memory efficiency
+            
+            # Convert HuggingFace GRPO format (should already have responses/scores)
             formatted_samples = []
             for sample in grpo_data:
                 if isinstance(sample, dict):
-                    # Extract data from HuggingFace format
-                    query = sample.get('inputs', sample.get('prompt', ''))
-                    ground_truth = sample.get('ground_truth', sample.get('completion', ''))
-                    sample_id = sample.get('case_id', sample.get('sample_id', ''))
-                    metadata = sample.get('metadata', {})
+                    # For GRPO datasets, expect 'query', 'responses', 'scores' fields
+                    query = sample.get('query', sample.get('inputs', ''))
+                    responses = sample.get('responses', [])
+                    scores = sample.get('scores', [])
                     
-                    # Convert to GRPO format (prompt/chosen/rejected)
-                    if query and ground_truth:
+                    if query and responses and scores and len(responses) == len(scores):
                         formatted_samples.append({
-                            'prompt': query,
-                            'chosen': ground_truth,
-                            'rejected': "I don't know.",  # Generic rejected response
-                            'sample_id': sample_id,
-                            'metadata': metadata
+                            'query': query,
+                            'responses': responses,
+                            'scores': scores,
+                            'sample_id': sample.get('sample_id', ''),
+                            'metadata': sample.get('metadata', {}),
+                            'prompt': query  # For compatibility
                         })
+                    else:
+                        logger.warning(f"Skipping sample without proper GRPO format: {sample.get('sample_id', 'unknown')}")
                         
             # Wrap in expected dictionary format
             grpo_data = {'samples': formatted_samples}
@@ -352,20 +356,22 @@ class GRPOLegalTrainer:
             with open(grpo_dataset_path, 'r', encoding='utf-8') as f:
                 grpo_data = json.load(f)
         
-        train_dataset = self.prepare_dataset(grpo_data)
+        # For sequential GRPO, we need raw GRPO data format (not HuggingFace Dataset format)
+        # Skip prepare_dataset conversion to preserve multi-response structure
+        raw_train_data = grpo_data.get('samples', [])
         
         # For evaluation-only mode, use the same dataset as eval dataset
         if eval_only:
-            eval_dataset = train_dataset
+            raw_eval_data = raw_train_data
             logger.info("Using training dataset as evaluation dataset for eval-only mode")
         else:
             # Load evaluation dataset if provided
-            eval_dataset = None
+            raw_eval_data = None
             if eval_dataset_path and Path(eval_dataset_path).exists():
                 logger.info(f"Loading evaluation dataset from: {eval_dataset_path}")
                 with open(eval_dataset_path, 'r', encoding='utf-8') as f:
                     eval_grpo_data = json.load(f)
-                eval_dataset = self.prepare_dataset(eval_grpo_data)
+                raw_eval_data = eval_grpo_data.get('samples', [])
         
         # Setup training configuration
         training_config = self.setup_training_config(**training_kwargs)
@@ -376,7 +382,7 @@ class GRPOLegalTrainer:
         # Use sequential approach for both training and evaluation to save memory
         logger.info("Using sequential GRPO approach to save GPU memory...")
         return self.run_sequential_grpo(
-            train_dataset, eval_dataset, reward_function, eval_only, **training_kwargs
+            raw_train_data, raw_eval_data, reward_function, eval_only, **training_kwargs
         )
         
     def run_sequential_grpo(self, train_dataset, eval_dataset, reward_function, eval_only, **training_kwargs):
@@ -406,19 +412,8 @@ class GRPOLegalTrainer:
                 with open(self.data_path, 'r') as f:
                     grpo_data = json.load(f)
                 
-                # Convert to expected format
-                dataset_samples = []
-                for sample in grpo_data.get('samples', []):
-                    dataset_samples.append({
-                        'query': sample['query'],
-                        'task': sample.get('task', 'unknown'),
-                        'expected': sample.get('expected_completion', ''),
-                        'responses': sample.get('responses', []),
-                        'scores': sample.get('scores', []),
-                        'prompt': sample['query']  # Add prompt field for compatibility
-                    })
-                
-                dataset_to_use = dataset_samples
+                # Use raw GRPO samples directly (preserve multi-response format)
+                dataset_to_use = grpo_data.get('samples', [])
                 logger.info(f"Loaded {len(dataset_to_use)} samples from {self.data_path}")
             else:
                 raise ValueError("No dataset provided for sequential GRPO")
@@ -428,6 +423,7 @@ class GRPOLegalTrainer:
         
         if reference_cache_file.exists():
             logger.info("Loading cached reference responses...")
+            import json
             with open(reference_cache_file, 'r') as f:
                 reference_outputs = json.load(f)
             logger.info(f"Loaded {len(reference_outputs)} cached reference responses")
@@ -436,6 +432,7 @@ class GRPOLegalTrainer:
             reference_outputs = self.generate_reference_responses(dataset_to_use)
             
             # Save reference responses for reuse
+            import json
             with open(reference_cache_file, 'w') as f:
                 json.dump(reference_outputs, f, indent=2)
             logger.info(f"Saved {len(reference_outputs)} reference responses to cache")
@@ -479,7 +476,7 @@ class GRPOLegalTrainer:
             if i % 10 == 0:
                 logger.info(f"Generating reference responses: {i}/{len(dataset)}")
                 
-            prompt = sample['prompt']
+            prompt = sample.get('prompt', sample.get('query', ''))
             
             # Generate reference response
             inputs = ref_tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
@@ -531,7 +528,7 @@ class GRPOLegalTrainer:
             if i % 10 == 0:
                 logger.info(f"Evaluating main model: {i}/{len(dataset)}")
                 
-            prompt = sample['prompt']
+            prompt = sample.get('prompt', sample.get('query', ''))
             ground_truth = sample.get('chosen', sample.get('expected', ''))
             
             # Generate main model response
