@@ -86,6 +86,37 @@ class UnifiedRewardFunction:
         
         return 'unknown'
     
+    def _convert_sft_to_reward_format(self, sample: Dict, task_type: str) -> Dict:
+        """
+        Convert SFT dataset format to the format expected by reward functions.
+        
+        Args:
+            sample: Sample from SFT dataset
+            task_type: Task type
+            
+        Returns:
+            Sample in format expected by reward function
+        """
+        converted = sample.copy()
+        
+        # Handle task-specific field mappings
+        if task_type == 'entail':
+            # Entail reward function expects 'label' field
+            if 'label' not in converted and 'ground_truth' in converted:
+                converted['label'] = converted['ground_truth']
+            elif 'label' not in converted and 'completion' in converted:
+                converted['label'] = converted['completion']
+        
+        elif task_type == 'holding':
+            # Holding reward function might expect specific fields
+            if 'answer_idx' not in converted and 'ground_truth' in converted:
+                # Try to map ground truth to answer index if needed
+                pass
+        
+        # Add more task-specific mappings as needed
+        
+        return converted
+
     def reward(self, sample: Dict, model_output: str, task_type: Optional[str] = None) -> float:
         """
         Compute reward for any task type.
@@ -103,18 +134,21 @@ class UnifiedRewardFunction:
             if task_type is None:
                 task_type = self.detect_task_type(sample)
             
+            # Convert sample to format expected by reward functions
+            converted_sample = self._convert_sft_to_reward_format(sample, task_type)
+            
             # Route to appropriate reward function
             if task_type == 'holding':
-                return self.holding_reward.reward(sample, model_output)
+                return self.holding_reward.reward(converted_sample, model_output)
             elif task_type == 'bluebook':
-                return self.bluebook_reward.reward(sample, model_output)
+                return self.bluebook_reward.reward(converted_sample, model_output)
             elif task_type == 'summarise':
-                return self.irac_reward.reward(sample, model_output)
+                return self.irac_reward.reward(converted_sample, model_output)
             elif task_type == 'entail':
-                return self.entail_reward.reward(sample, model_output)
+                return self.entail_reward.reward(converted_sample, model_output)
             elif task_type == 'retrieval':
                 if self.retrieval_reward is not None:
-                    return self.retrieval_reward.reward(sample, model_output)
+                    return self.retrieval_reward.reward(converted_sample, model_output)
                 else:
                     print("Retrieval reward function not available")
                     return 0.0
@@ -123,7 +157,13 @@ class UnifiedRewardFunction:
                 return 0.0
                 
         except Exception as e:
-            print(f"Error computing reward for task {task_type}: {e}")
+            import traceback
+            print(f"ERROR in reward function for task {task_type}:")
+            print(f"  Exception: {e}")
+            print(f"  Sample keys: {list(sample.keys()) if isinstance(sample, dict) else type(sample)}")
+            print(f"  Model output length: {len(model_output) if model_output else 'None'}")
+            print(f"  Full traceback:")
+            traceback.print_exc()
             return 0.0
     
     def get_available_tasks(self) -> list:
