@@ -103,6 +103,35 @@ nvidia-smi --query-gpu=index,memory.used,memory.total --format=csv -l 5
 - **Base Model (Qwen/Qwen3-14B)**: 0.152 mean reward (15.2% - FAIL)
 - **SFT Model**: Validation in progress
 
+## Using Gemini as a Collaborative Tool
+
+### Command Interface
+Use `gemini -p "your prompt"` to interact with Gemini AI. Each command is stateless - no context is retained between calls.
+
+### Collaboration Patterns
+**✅ Effective Uses:**
+- **Code Generation**: `gemini -p "Write a Python function to parse JSONL files with error handling"`
+- **Data Analysis**: `gemini -p "Analyze this training log and identify performance bottlenecks: [paste log excerpt]"`
+- **Script Execution**: `gemini -p "Run the command 'python scripts/prep_summarise_task.py --input data/raw.jsonl --output data/prepared.jsonl'"`
+- **Technical Explanations**: `gemini -p "Explain how LoRA fine-tuning works for legal document classification"`
+
+**❌ Context Limitations:**
+- Cannot maintain conversation history across commands
+- Cannot reference previous interactions
+- Must provide complete, self-contained instructions each time
+
+### Best Practices
+1. **Provide Complete Context**: Include all necessary file paths, parameters, and background in each prompt
+2. **Use for Parallel Work**: Gemini can handle data processing while Claude focuses on strategy
+3. **Leverage Environment Analysis**: Gemini automatically analyzes the current project structure
+4. **Be Specific**: Instead of "train the model", use "run scripts/train_sft_simple.py with dataset kylebrussell/cap-rlvr-sft"
+
+### Example Workflow
+```bash
+# Task delegation example
+gemini -p "Execute this exact command and report any errors: python scripts/simple_eval.py --model_path models/sft_qwen3_14b_lora_10k --dataset_name kylebrussell/cap-rlvr-sft --task_type summarise"
+```
+
 ## Next Steps
 1. ✅ Verify all 5 task types generated successfully  
 2. ✅ Build FAISS index for retrieval task

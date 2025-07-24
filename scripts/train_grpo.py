@@ -399,11 +399,46 @@ class GRPOLegalTrainer:
         dataset_to_use = eval_dataset if eval_only else train_dataset
         
         if not dataset_to_use:
-            raise ValueError("No dataset provided for sequential GRPO")
+            logger.warning("No dataset provided, trying to load from data_path")
+            if hasattr(self, 'data_path') and self.data_path:
+                # Load GRPO dataset from file
+                import json
+                with open(self.data_path, 'r') as f:
+                    grpo_data = json.load(f)
+                
+                # Convert to expected format
+                dataset_samples = []
+                for sample in grpo_data.get('samples', []):
+                    dataset_samples.append({
+                        'query': sample['query'],
+                        'task': sample.get('task', 'unknown'),
+                        'expected': sample.get('expected_completion', ''),
+                        'responses': sample.get('responses', []),
+                        'scores': sample.get('scores', []),
+                        'prompt': sample['query']  # Add prompt field for compatibility
+                    })
+                
+                dataset_to_use = dataset_samples
+                logger.info(f"Loaded {len(dataset_to_use)} samples from {self.data_path}")
+            else:
+                raise ValueError("No dataset provided for sequential GRPO")
             
-        # Step 1: Generate reference model responses
-        logger.info("Phase 1: Generating reference model responses...")
-        reference_outputs = self.generate_reference_responses(dataset_to_use)
+        # Step 1: Generate reference model responses (with caching)
+        reference_cache_file = Path(self.output_dir) / "reference_responses.json"
+        
+        if reference_cache_file.exists():
+            logger.info("Loading cached reference responses...")
+            with open(reference_cache_file, 'r') as f:
+                reference_outputs = json.load(f)
+            logger.info(f"Loaded {len(reference_outputs)} cached reference responses")
+        else:
+            logger.info("Phase 1: Generating reference model responses...")
+            reference_outputs = self.generate_reference_responses(dataset_to_use)
+            
+            # Save reference responses for reuse
+            with open(reference_cache_file, 'w') as f:
+                json.dump(reference_outputs, f, indent=2)
+            logger.info(f"Saved {len(reference_outputs)} reference responses to cache")
         
         # Clear GPU memory
         import torch
@@ -416,9 +451,10 @@ class GRPOLegalTrainer:
         if eval_only:
             return {'eval_results': results}
         else:
-            # For training mode, we'd implement training steps here
-            logger.info("Training mode not yet implemented in sequential approach")
-            return {'eval_results': results}
+            # Phase 3: GRPO Training Implementation
+            logger.info("Phase 3: Starting GRPO training...")
+            training_results = self.run_grpo_training(dataset_to_use, results, reference_outputs, reward_function)
+            return {'eval_results': results, 'training_results': training_results}
     
     def generate_reference_responses(self, dataset):
         """Generate responses using the reference model (same as base model)."""
@@ -496,7 +532,7 @@ class GRPOLegalTrainer:
                 logger.info(f"Evaluating main model: {i}/{len(dataset)}")
                 
             prompt = sample['prompt']
-            ground_truth = sample['chosen']
+            ground_truth = sample.get('chosen', sample.get('expected', ''))
             
             # Generate main model response
             inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
@@ -549,6 +585,191 @@ class GRPOLegalTrainer:
         
         logger.info(f"Sequential evaluation complete: mean_reward={mean_reward:.3f}, std={reward_std:.3f}")
         return results
+    
+    def run_grpo_training(self, dataset, eval_results, reference_outputs, reward_function):
+        """
+        Run the actual GRPO training using group-based policy optimization.
+        
+        Args:
+            dataset: Original GRPO dataset samples
+            eval_results: Results from model evaluation
+            reference_outputs: Reference model responses
+            reward_function: Reward function for scoring
+            
+        Returns:
+            Training results dictionary
+        """
+        import torch
+        from torch.optim import AdamW
+        from transformers import get_linear_schedule_with_warmup
+        import torch.nn.functional as F
+        import numpy as np
+        
+        logger.info("Preparing GRPO training data...")
+        
+        # Step 1: Prepare training pairs from GRPO dataset
+        training_pairs = []
+        for i, sample in enumerate(dataset):
+            if i >= len(reference_outputs):
+                break
+                
+            query = sample['query']
+            responses = sample.get('responses', [])
+            scores = sample.get('scores', [])
+            
+            if len(responses) < 2 or len(scores) < 2:
+                continue
+                
+            # Create training pairs for group comparison
+            for j in range(len(responses)):
+                for k in range(j + 1, len(responses)):
+                    if scores[j] != scores[k]:  # Only use pairs with different scores
+                        # Determine which response is better
+                        if scores[j] > scores[k]:
+                            chosen_response = responses[j]
+                            rejected_response = responses[k]
+                            advantage = scores[j] - scores[k]
+                        else:
+                            chosen_response = responses[k]  
+                            rejected_response = responses[j]
+                            advantage = scores[k] - scores[j]
+                        
+                        training_pairs.append({
+                            'query': query,
+                            'chosen': chosen_response,
+                            'rejected': rejected_response,
+                            'advantage': advantage
+                        })
+        
+        logger.info(f"Created {len(training_pairs)} training pairs from {len(dataset)} samples")
+        
+        if len(training_pairs) == 0:
+            logger.warning("No training pairs created - skipping training")
+            return {'status': 'skipped', 'reason': 'no_training_pairs'}
+        
+        # Step 2: Setup training parameters
+        learning_rate = 5e-6
+        num_epochs = 3
+        batch_size = 2
+        warmup_steps = min(100, len(training_pairs) // 10)
+        
+        # Step 3: Setup optimizer and scheduler
+        optimizer = AdamW(self.model.parameters(), lr=learning_rate)
+        total_steps = (len(training_pairs) // batch_size) * num_epochs
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer, 
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps
+        )
+        
+        # Step 4: Training loop
+        self.model.train()
+        training_losses = []
+        
+        logger.info(f"Starting GRPO training: {num_epochs} epochs, {len(training_pairs)} pairs")
+        
+        for epoch in range(num_epochs):
+            epoch_losses = []
+            
+            # Shuffle training pairs
+            import random
+            random.shuffle(training_pairs)
+            
+            for step in range(0, len(training_pairs), batch_size):
+                batch_pairs = training_pairs[step:step + batch_size]
+                
+                batch_loss = 0.0
+                optimizer.zero_grad()
+                
+                for pair in batch_pairs:
+                    # Compute log probabilities for chosen and rejected responses
+                    chosen_logprobs = self.compute_response_logprobs(pair['query'], pair['chosen'])
+                    rejected_logprobs = self.compute_response_logprobs(pair['query'], pair['rejected'])
+                    
+                    # GRPO loss: maximize log probability of chosen over rejected
+                    # Weighted by advantage (reward difference)
+                    advantage = torch.tensor(pair['advantage'], dtype=torch.float32, device=self.model.device)
+                    
+                    # Policy gradient loss
+                    policy_loss = -advantage * (chosen_logprobs - rejected_logprobs)
+                    batch_loss += policy_loss
+                
+                # Average loss over batch
+                batch_loss = batch_loss / len(batch_pairs)
+                
+                # Backward pass
+                batch_loss.backward()
+                
+                # Gradient clipping
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                
+                optimizer.step()
+                scheduler.step()
+                
+                epoch_losses.append(batch_loss.item())
+                
+                # Log progress
+                if step % (batch_size * 10) == 0:
+                    logger.info(f"Epoch {epoch+1}/{num_epochs}, Step {step//batch_size}, Loss: {batch_loss.item():.4f}")
+            
+            avg_epoch_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0.0
+            training_losses.append(avg_epoch_loss)
+            logger.info(f"Epoch {epoch+1} completed, Average Loss: {avg_epoch_loss:.4f}")
+            
+            # Save checkpoint after each epoch
+            checkpoint_dir = Path(self.output_dir) / f"checkpoint-epoch-{epoch+1}"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            self.model.save_pretrained(checkpoint_dir)
+            logger.info(f"Saved checkpoint to {checkpoint_dir}")
+        
+        # Step 5: Save final model
+        logger.info(f"Saving final GRPO model to {self.output_dir}")
+        self.model.save_pretrained(self.output_dir)
+        self.tokenizer.save_pretrained(self.output_dir)
+        
+        # Save training info
+        training_info = {
+            'total_training_pairs': len(training_pairs),
+            'num_epochs': num_epochs,
+            'learning_rate': learning_rate,
+            'batch_size': batch_size,
+            'final_loss': training_losses[-1] if training_losses else 0.0,
+            'training_losses': training_losses,
+            'base_model': self.model_path
+        }
+        
+        with open(Path(self.output_dir) / "grpo_training_info.json", "w") as f:
+            json.dump(training_info, f, indent=2)
+        
+        logger.info("GRPO training completed successfully!")
+        return training_info
+    
+    def compute_response_logprobs(self, query, response):
+        """Compute log probabilities for a response given a query."""
+        # Tokenize query and response
+        full_text = query + " " + response
+        query_inputs = self.tokenizer(query, return_tensors="pt", add_special_tokens=False)
+        full_inputs = self.tokenizer(full_text, return_tensors="pt", truncation=True, max_length=1024)
+        
+        # Move to device
+        full_inputs = {k: v.to(self.model.device) for k, v in full_inputs.items()}
+        query_length = query_inputs['input_ids'].shape[1]
+        
+        # Forward pass
+        with torch.cuda.amp.autocast():
+            outputs = self.model(**full_inputs)
+            logits = outputs.logits
+        
+        # Extract logits for response tokens only
+        response_logits = logits[0, query_length-1:-1, :]  # Exclude last token
+        response_targets = full_inputs['input_ids'][0, query_length:]
+        
+        # Compute log probabilities
+        log_probs = F.log_softmax(response_logits, dim=-1)
+        response_log_probs = log_probs.gather(1, response_targets.unsqueeze(1)).squeeze(1)
+        
+        # Return mean log probability
+        return response_log_probs.mean()
     
     def add_legal_callbacks(self, trainer: GRPOTrainer):
         """Add legal-specific training callbacks"""
@@ -628,6 +849,9 @@ def main():
         faiss_index_path=args.faiss_index,
         output_dir=args.output_dir
     )
+    
+    # Store data path for fallback loading
+    trainer.data_path = args.data_path
     
     # Training configuration
     training_config = {
