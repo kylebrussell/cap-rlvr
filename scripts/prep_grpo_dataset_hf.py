@@ -145,6 +145,41 @@ class GRPODatasetGenerator:
         
         return responses
     
+    def enhance_prompt(self, original_prompt: str, task_type: str) -> str:
+        """
+        Enhance prompts to include complete choice sets, fixing ground truth vs choice mismatches.
+        
+        Args:
+            original_prompt: Original prompt from SFT dataset
+            task_type: Task type ('entail', 'holding', etc.)
+            
+        Returns:
+            Enhanced prompt with complete choice set
+        """
+        if task_type == 'entail':
+            # Fix incomplete entail task choices - original missing FOLLOWS and CITES_POSITIVELY
+            old_choices = """Choose from:
+- OVERRULES: The citing case overrules or abrogates the cited case
+- DISTINGUISHES: The citing case distinguishes itself from the cited case  
+- AFFIRMS: The citing case affirms or follows the cited case
+- NONE: No clear relationship is established"""
+            
+            new_choices = """Choose from:
+- OVERRULES: The citing case overrules or abrogates the cited case
+- DISTINGUISHES: The citing case distinguishes itself from the cited case  
+- AFFIRMS: The citing case affirms or follows the cited case
+- FOLLOWS: The citing case follows the precedent established by the cited case
+- CITES_POSITIVELY: The citing case cites the cited case in support of its reasoning
+- NONE: No clear relationship is established"""
+            
+            if old_choices in original_prompt:
+                return original_prompt.replace(old_choices, new_choices)
+        
+        # Add enhancements for other task types as needed
+        # TODO: Audit holding, bluebook, summarise, retrieval tasks
+        
+        return original_prompt
+    
     def process_hf_dataset(self, task_filter: str = 'all', num_candidates: int = 4, subset: int = None) -> List[Dict[str, Any]]:
         """
         Process HuggingFace dataset to generate GRPO samples.
@@ -175,7 +210,7 @@ class GRPODatasetGenerator:
         logger.info(f"Processing {len(dataset)} samples...")
         for idx, sample in enumerate(tqdm(dataset)):
             try:
-                query = sample['prompt']
+                query = self.enhance_prompt(sample['prompt'], sample['task'])
                 expected = sample['completion']
                 task_type = sample['task']
                 
