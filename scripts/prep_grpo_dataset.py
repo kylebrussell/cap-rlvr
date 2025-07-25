@@ -148,6 +148,41 @@ class GRPODatasetGenerator:
         
         return candidates
     
+    def enhance_prompt(self, original_prompt: str, task_type: str) -> str:
+        """
+        Enhance prompts to include complete choice sets, fixing ground truth vs choice mismatches.
+        
+        Args:
+            original_prompt: Original prompt from SFT dataset
+            task_type: Task type ('entail', 'holding', etc.)
+            
+        Returns:
+            Enhanced prompt with complete choice set
+        """
+        if task_type == 'entail':
+            # Fix incomplete entail task choices - original missing FOLLOWS and CITES_POSITIVELY
+            old_choices = """Choose from:
+- OVERRULES: The citing case overrules or abrogates the cited case
+- DISTINGUISHES: The citing case distinguishes itself from the cited case  
+- AFFIRMS: The citing case affirms or follows the cited case
+- NONE: No clear relationship is established"""
+            
+            new_choices = """Choose from:
+- OVERRULES: The citing case overrules or abrogates the cited case
+- DISTINGUISHES: The citing case distinguishes itself from the cited case  
+- AFFIRMS: The citing case affirms or follows the cited case
+- FOLLOWS: The citing case follows the precedent established by the cited case
+- CITES_POSITIVELY: The citing case cites the cited case in support of its reasoning
+- NONE: No clear relationship is established"""
+            
+            if old_choices in original_prompt:
+                return original_prompt.replace(old_choices, new_choices)
+        
+        # Add enhancements for other task types as needed
+        # TODO: Audit holding, bluebook, summarise, retrieval tasks
+        
+        return original_prompt
+    
     def process_task_file(self, task_file: pathlib.Path, num_candidates: int = 4, subset_size: int = None) -> List[Dict[str, Any]]:
         """
         Process a task file and generate GRPO dataset.
@@ -181,26 +216,30 @@ class GRPODatasetGenerator:
                         logger.warning(f"Empty query at line {idx+1}, skipping")
                         continue
                     
+                    # Auto-detect task type from file path
+                    task_type = None
+                    if 'bluebook' in str(task_file):
+                        task_type = 'bluebook'
+                    elif 'holding' in str(task_file):
+                        task_type = 'holding'
+                    elif 'summarise' in str(task_file):
+                        task_type = 'summarise'
+                    elif 'retrieval' in str(task_file):
+                        task_type = 'retrieval'
+                    elif 'entail' in str(task_file):
+                        task_type = 'entail'
+                    
+                    # Enhance prompt to include complete choice sets
+                    enhanced_query = self.enhance_prompt(query, task_type) if task_type else query
+                    
                     # Generate multiple candidate responses
-                    candidates = self.generate_responses(query, num_candidates)
+                    candidates = self.generate_responses(enhanced_query, num_candidates)
                     
                     # Score each candidate using unified reward function
                     scores = []
                     for candidate in candidates:
                         try:
-                            # Auto-detect task type from file path or use explicit detection
-                            task_type = None
-                            if 'bluebook' in str(task_file):
-                                task_type = 'bluebook'
-                            elif 'holding' in str(task_file):
-                                task_type = 'holding'
-                            elif 'summarise' in str(task_file):
-                                task_type = 'summarise'
-                            elif 'retrieval' in str(task_file):
-                                task_type = 'retrieval'
-                            elif 'entail' in str(task_file):
-                                task_type = 'entail'
-                            
+                            # Use original sample for reward computation to ensure correct field format
                             score = self.reward_fn.reward(sample, candidate, task_type=task_type)
                             scores.append(float(score))
                             
@@ -209,7 +248,7 @@ class GRPODatasetGenerator:
                             scores.append(0.0)
                     
                     grpo_sample = {
-                        'query': query,
+                        'query': enhanced_query,
                         'responses': candidates,
                         'scores': scores,
                         'metadata': sample.get('metadata', {}),

@@ -81,7 +81,7 @@ class GRPOTrainingOrchestrator:
         }
     }
     
-    def __init__(self, base_output_dir: str = "models/grpo", max_retries: int = 2, sft_model_path: str = None):
+    def __init__(self, base_output_dir: str = "models/grpo", max_retries: int = 2, sft_model_path: str = None, data_dir: str = "data_grpo"):
         """
         Initialize GRPO training orchestrator.
         
@@ -89,10 +89,12 @@ class GRPOTrainingOrchestrator:
             base_output_dir: Base directory for model outputs
             max_retries: Maximum retries per stage before giving up
             sft_model_path: SFT model path for size-aware directory naming
+            data_dir: Directory containing GRPO training data
         """
         self.base_output_dir = Path(base_output_dir)
         self.max_retries = max_retries
         self.sft_model_path = sft_model_path
+        self.data_dir = Path(data_dir).absolute()
         
         # Create model-size-aware directory if SFT model provided
         if sft_model_path:
@@ -338,8 +340,8 @@ class GRPOTrainingOrchestrator:
                     'python', 'train_grpo.py',
                     '--task', task,
                     '--model_path', current_model_path,
-                    '--data_path', f'../data_grpo/{task}/train_grpo.json',
-                    '--eval_data_path', f'../data_grpo/{task}/eval_grpo.json',
+                    '--data_path', str(self.data_dir / task / 'train_grpo.json'),
+                    '--eval_data_path', str(self.data_dir / task / 'eval_grpo.json'),
                     '--output_dir', str(task_output_dir),
                     '--num_epochs', str(config['epochs_per_task']),
                     '--learning_rate', str(config['learning_rate'])
@@ -406,8 +408,8 @@ class GRPOTrainingOrchestrator:
                     '--task', 'all',
                     '--multi_task',
                     '--model_path', current_model_path,
-                    '--data_path', '../data_grpo/unified/train_grpo.json',
-                    '--eval_data_path', '../data_grpo/unified/eval_grpo.json',
+                    '--data_path', str(self.data_dir / 'unified' / 'train_grpo.json'),
+                    '--eval_data_path', str(self.data_dir / 'unified' / 'eval_grpo.json'),
                     '--output_dir', str(iteration_output_dir),
                     '--num_epochs', str(config['epochs_per_iteration']),
                     '--learning_rate', str(config['learning_rate'])
@@ -527,6 +529,8 @@ def main():
                        help='Maximum retries per stage (default: 2)')
     parser.add_argument('--dry_run', action='store_true',
                        help='Show planned execution without running')
+    parser.add_argument('--data_dir', default='data_grpo',
+                       help='Directory containing GRPO training data (default: data_grpo)')
     
     args = parser.parse_args()
     
@@ -546,7 +550,8 @@ def main():
     orchestrator = GRPOTrainingOrchestrator(
         base_output_dir=args.output_dir,
         max_retries=args.max_retries,
-        sft_model_path=base_model
+        sft_model_path=base_model,
+        data_dir=args.data_dir
     )
     
     if args.dry_run:
