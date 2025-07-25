@@ -59,11 +59,22 @@ class UnifiedRewardFunction:
     
     def detect_task_type(self, sample: Dict) -> str:
         """Automatically detect the task type from sample structure"""
+        # First check if explicit task field exists (HuggingFace format)
+        if 'task' in sample:
+            task_value = sample['task']
+            if task_value in ['entail', 'holding', 'bluebook', 'summarise', 'retrieval']:
+                return task_value
+        
+        # Legacy detection logic for other formats
         for task_type, indicators in self.task_indicators.items():
             score = 0
             for indicator in indicators:
                 if indicator in sample:
                     score += 1
+                # Check in 'prompt' field for HuggingFace format
+                elif isinstance(sample.get('prompt', ''), str) and indicator in sample['prompt']:
+                    score += 1
+                # Also check legacy 'inputs' field
                 elif isinstance(sample.get('inputs', ''), str) and indicator in sample['inputs']:
                     score += 1
             
@@ -71,27 +82,89 @@ class UnifiedRewardFunction:
             if score >= len(indicators) // 2 + 1:
                 return task_type
         
-        # Fallback: try to infer from inputs text
-        inputs_text = str(sample.get('inputs', '')).lower()
-        if 'choose the correct holding' in inputs_text:
+        # Fallback: try to infer from prompt/inputs text
+        prompt_text = str(sample.get('prompt', sample.get('inputs', ''))).lower()
+        if 'choose the correct holding' in prompt_text:
             return 'holding'
-        elif 'fill in the citation' in inputs_text:
+        elif 'fill in the citation' in prompt_text:
             return 'bluebook'
-        elif 'summarize' in inputs_text and 'irac' in inputs_text:
+        elif 'summarize' in prompt_text and 'irac' in prompt_text:
             return 'summarise'
-        elif 'find' in inputs_text and 'cases' in inputs_text:
+        elif 'find' in prompt_text and 'cases' in prompt_text:
             return 'retrieval'
-        elif 'relationship' in inputs_text:
+        elif 'relationship' in prompt_text:
             return 'entail'
         
         return 'unknown'
+    
+    def _extract_context_from_prompt(self, prompt: str) -> str:
+        """Extract case context from prompt by removing instruction text"""
+        # Look for common prompt patterns and extract the actual case context
+        lines = prompt.split('\n')
+        context_lines = []
+        
+        # Skip instruction lines and find the actual case content
+        in_context = False
+        for line in lines:
+            line = line.strip()
+            # Start capturing after common instruction patterns
+            if any(marker in line.lower() for marker in ['context:', 'facts:', 'case:', 'citing case:', 'cited case:']):
+                in_context = True
+                # Include the line if it has content beyond the marker
+                if ':' in line:
+                    content_after_marker = line.split(':', 1)[1].strip()
+                    if content_after_marker:
+                        context_lines.append(content_after_marker)
+                continue
+            elif in_context and line:
+                context_lines.append(line)
+        
+        return ' '.join(context_lines) if context_lines else prompt
+    
+    def _parse_holding_format(self, sample: Dict) -> Dict:
+        """Parse holding task format to extract choices and answer index"""
+        result = {}
+        prompt = sample.get('prompt', '')
+        completion = sample.get('completion', '')
+        
+        # Extract choices from prompt - look for A), B), C) patterns
+        import re
+        choice_pattern = r'([A-E])\)\s*([^A-E\n]+?)(?=[A-E]\)|$)'
+        matches = re.findall(choice_pattern, prompt, re.DOTALL)
+        
+        if matches:
+            choices = [match[1].strip() for match in matches]
+            result['choices'] = choices
+            
+            # Find answer index from completion
+            # Look for letter indicators in completion
+            answer_pattern = r'\b([A-E])\b'
+            answer_match = re.search(answer_pattern, completion.upper())
+            if answer_match:
+                answer_letter = answer_match.group(1)
+                result['answer_idx'] = ord(answer_letter) - ord('A')
+            else:
+                # Try to match completion text with choices
+                completion_lower = completion.lower().strip()
+                for i, choice in enumerate(choices):
+                    if completion_lower in choice.lower() or choice.lower() in completion_lower:
+                        result['answer_idx'] = i
+                        break
+                else:
+                    result['answer_idx'] = 0  # Default to first choice
+        else:
+            # Fallback: create dummy choices if parsing fails
+            result['choices'] = [completion, 'Alternative choice']
+            result['answer_idx'] = 0
+        
+        return result
     
     def _convert_sft_to_reward_format(self, sample: Dict, task_type: str) -> Dict:
         """
         Convert SFT dataset format to the format expected by reward functions.
         
         Args:
-            sample: Sample from SFT dataset
+            sample: Sample from SFT dataset (HuggingFace format)
             task_type: Task type
             
         Returns:
@@ -101,19 +174,39 @@ class UnifiedRewardFunction:
         
         # Handle task-specific field mappings
         if task_type == 'entail':
-            # Entail reward function expects 'label' field
-            if 'label' not in converted and 'ground_truth' in converted:
-                converted['label'] = converted['ground_truth']
-            elif 'label' not in converted and 'completion' in converted:
-                converted['label'] = converted['completion']
+            # Entail reward function expects 'label' and 'context'
+            converted['label'] = sample.get('expected_completion', sample.get('completion', ''))
+            converted['context'] = self._extract_context_from_prompt(sample.get('inputs', sample.get('prompt', '')))
+        
+        elif task_type == 'bluebook':
+            # Bluebook reward function expects 'ground_truth'
+            converted['ground_truth'] = sample.get('expected_completion', sample.get('completion', ''))
         
         elif task_type == 'holding':
-            # Holding reward function might expect specific fields
-            if 'answer_idx' not in converted and 'ground_truth' in converted:
-                # Try to map ground truth to answer index if needed
-                pass
+            # Holding reward function expects 'choices' and 'answer_idx'
+            holding_data = self._parse_holding_format(sample)
+            converted.update(holding_data)
         
-        # Add more task-specific mappings as needed
+        elif task_type == 'retrieval':
+            # Retrieval reward function expects 'inputs' and 'positives'
+            converted['inputs'] = sample.get('inputs', sample.get('prompt', ''))
+            # Try to get positives from metadata, otherwise empty list
+            metadata = sample.get('metadata', {})
+            converted['positives'] = metadata.get('positives', metadata.get('related_cases', []))
+        
+        elif task_type == 'summarise':
+            # IRAC reward function expects 'ground_truth' (dict or string)
+            completion = sample.get('expected_completion', sample.get('completion', ''))
+            # Try to structure the ground truth if it's a simple string
+            if isinstance(completion, str):
+                converted['ground_truth'] = {
+                    'summary': completion,
+                    'key_parties': [],  # Could extract from prompt if needed
+                    'case_name': '',
+                    'year': ''
+                }
+            else:
+                converted['ground_truth'] = completion
         
         return converted
 
