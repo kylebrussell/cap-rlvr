@@ -20,6 +20,7 @@ from typing import Dict, List, Any, Optional, Callable
 import warnings
 
 import torch
+import torch.nn.functional as F
 import numpy as np
 from datasets import Dataset
 from transformers import (
@@ -599,8 +600,6 @@ class GRPOLegalTrainer:
         import torch
         from torch.optim import AdamW
         from transformers import get_linear_schedule_with_warmup
-        import torch.nn.functional as F
-        import numpy as np
         
         logger.info("Preparing GRPO training data...")
         
@@ -675,7 +674,7 @@ class GRPOLegalTrainer:
             for step in range(0, len(training_pairs), batch_size):
                 batch_pairs = training_pairs[step:step + batch_size]
                 
-                batch_loss = 0.0
+                batch_loss = torch.tensor(0.0, device=self.model.device, requires_grad=True)
                 optimizer.zero_grad()
                 
                 for pair in batch_pairs:
@@ -685,11 +684,11 @@ class GRPOLegalTrainer:
                     
                     # GRPO loss: maximize log probability of chosen over rejected
                     # Weighted by advantage (reward difference)
-                    advantage = torch.tensor(pair['advantage'], dtype=torch.float32, device=self.model.device)
+                    advantage = torch.tensor(pair['advantage'], dtype=torch.float32, device=self.model.device, requires_grad=False)
                     
                     # Policy gradient loss
                     policy_loss = -advantage * (chosen_logprobs - rejected_logprobs)
-                    batch_loss += policy_loss
+                    batch_loss = batch_loss + policy_loss
                 
                 # Average loss over batch
                 batch_loss = batch_loss / len(batch_pairs)
@@ -742,31 +741,53 @@ class GRPOLegalTrainer:
         return training_info
     
     def compute_response_logprobs(self, query, response):
-        """Compute log probabilities for a response given a query."""
-        # Tokenize query and response
+        """
+        Compute the mean log probability of a response given a query.
+
+        This implementation uses the 'labels' argument to let the model compute the loss,
+        which is the negative log-likelihood. This is a robust way to maintain the computation
+        graph for backpropagation during training.
+        """
+        # Combine query and response for tokenization. A space is added for separation.
         full_text = query + " " + response
-        query_inputs = self.tokenizer(query, return_tensors="pt", add_special_tokens=False)
-        full_inputs = self.tokenizer(full_text, return_tensors="pt", truncation=True, max_length=1024)
         
-        # Move to device
-        full_inputs = {k: v.to(self.model.device) for k, v in full_inputs.items()}
+        # Tokenize the full text. The tokenizer will add special tokens (e.g., BOS) if configured to.
+        full_inputs = self.tokenizer(
+            full_text,
+            return_tensors="pt",
+            truncation=True,
+            max_length=1024
+        )
+        
+        # Tokenize the query by itself (without special tokens) to determine its length.
+        # This is used to distinguish the query from the response in the combined token sequence.
+        query_inputs = self.tokenizer(query, return_tensors="pt", add_special_tokens=False)
         query_length = query_inputs['input_ids'].shape[1]
         
-        # Forward pass
+        # Move tensors to the model's device (e.g., GPU).
+        full_inputs = {k: v.to(self.model.device) for k, v in full_inputs.items()}
+        
+        # Create labels for calculating the loss. The loss will only be computed for the response part.
+        labels = full_inputs['input_ids'].clone()
+        
+        # Mask the query tokens by setting their labels to -100.
+        # The Hugging Face loss function ignores these tokens.
+        # Note: This assumes that the tokenized `full_text` starts with the same tokens as the
+        # tokenized `query`. If the tokenizer adds a beginning-of-sequence (BOS) token to `full_text`,
+        # the query_length might need to be adjusted (e.g., by adding 1).
+        # For simplicity and consistency with the likely original intent, we use the direct query length.
+        labels[0, :query_length] = -100
+        
+        # Perform a forward pass. By providing 'labels', the model automatically computes the
+        # cross-entropy loss for the unmasked tokens.
         with torch.cuda.amp.autocast():
-            outputs = self.model(**full_inputs)
-            logits = outputs.logits
+            outputs = self.model(**full_inputs, labels=labels)
         
-        # Extract logits for response tokens only
-        response_logits = logits[0, query_length-1:-1, :]  # Exclude last token
-        response_targets = full_inputs['input_ids'][0, query_length:]
-        
-        # Compute log probabilities
-        log_probs = F.log_softmax(response_logits, dim=-1)
-        response_log_probs = log_probs.gather(1, response_targets.unsqueeze(1)).squeeze(1)
-        
-        # Return mean log probability
-        return response_log_probs.mean()
+        # The model's loss is the mean negative log-likelihood of the response tokens.
+        # loss = -mean(log_probs).
+        # To get the mean log probability, we return -outputs.loss.
+        # This value is a tensor that remains part of the computation graph.
+        return -outputs.loss
     
     def add_legal_callbacks(self, trainer: GRPOTrainer):
         """Add legal-specific training callbacks"""

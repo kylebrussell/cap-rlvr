@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 class GRPOTrainingOrchestrator:
     """Orchestrates multi-stage GRPO training with automatic progression"""
     
-    TASK_NAMES = ['bluebook', 'holding', 'summarise', 'retrieval', 'entail']
+    TASK_NAMES = ['bluebook', 'holding', 'summarise', 'entail']  # 'retrieval' disabled - no data available
     
     STAGE_CONFIG = {
         0: {
