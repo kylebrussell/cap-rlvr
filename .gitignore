@@ -30,10 +30,13 @@ deploy/
 *.pth
 *.pt
 
-# Logs
-logs/
+# Logs (exclude general logs but keep important training/evaluation reports)
+logs/*.log
+!logs/eval-tracking.md
+!logs/progressive_evaluation_*.md
+!logs/grpo_*_success.log
+!logs/sft_*_training.log
 wandb/
-*.log
 
 # IDE
 .vscode/
