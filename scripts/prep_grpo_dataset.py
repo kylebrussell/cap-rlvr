@@ -111,7 +111,7 @@ class GRPODatasetGenerator:
         candidates = []
         try:
             # Tokenize input
-            inputs = self.tokenizer.encode(query, return_tensors='pt', truncate=True, max_length=2048)
+            inputs = self.tokenizer.encode(query, return_tensors='pt', truncation=True, max_length=2048)
             inputs = inputs.to(self.device)
             
             # Generate multiple responses with different sampling parameters
@@ -144,7 +144,7 @@ class GRPODatasetGenerator:
         except Exception as e:
             logger.error(f"Error generating responses: {e}")
             # Fallback to mock responses
-            candidates = [f"Fallback response {i+1}" for i in range(num_candidates)]
+            candidates = [f"Fallback response {i+1}" for i in range(4)]  # Default 4 candidates
         
         return candidates
     

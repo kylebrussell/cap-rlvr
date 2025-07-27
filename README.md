@@ -288,22 +288,37 @@ python scripts/prep_grpo_dataset.py --task bluebook --model_path models/sft --mo
 
 ## GRPO Training (Lambda Labs)
 
-Execute reinforcement learning training using the complete GRPO implementation:
+Execute reinforcement learning training using the complete GRPO implementation with **progressive training sequence**:
+
+### Progressive Training Strategy
+The project implements a sequential improvement approach:
+1. **SFT Base Model** → **Bluebook GRPO** (citation formatting mastery)
+2. **Bluebook GRPO** → **Holding GRPO** (building on citation knowledge)  
+3. **Holding GRPO** → **Summarise GRPO** (adding structured reasoning)
+4. **Summarise GRPO** → **Entail GRPO** (completing legal reasoning suite)
 
 ```bash
-# Single task GRPO training
+# Progressive training sequence (recommended)
+# 1. Start with SFT model for first task
 python scripts/train_grpo.py --task bluebook --model_path models/sft \
   --data_path data_grpo/bluebook/train_grpo.json
+
+# 2. Use previous GRPO model as base for next task
+python scripts/train_grpo.py --task holding --model_path models/grpo_bluebook \
+  --data_path data_grpo/holding/train_grpo.json
+
+# 3. Continue building on previous improvements
+python scripts/train_grpo.py --task summarise --model_path models/grpo_holding \
+  --data_path data_grpo/summarise/train_grpo.json
+
+# 4. Final task builds on all previous knowledge
+python scripts/train_grpo.py --task entail --model_path models/grpo_summarise \
+  --data_path data_grpo/entail/train_grpo.json
 
 # Multi-task GRPO training with evaluation
 python scripts/train_grpo.py --task all --multi_task --model_path models/sft \
   --data_path data_grpo/unified/train_grpo.json \
   --eval_data_path data_grpo/unified/eval_grpo.json
-
-# Custom configuration for production training
-python scripts/train_grpo.py --task holding --model_path models/sft \
-  --data_path data_grpo/holding/train_grpo.json \
-  --batch_size 4 --learning_rate 5e-6 --num_epochs 5
 ```
 
 **Key Features:**
@@ -382,11 +397,19 @@ models/
 Based on the **Caselaw Access Project (CAP)** containing millions of US court decisions, processed into structured training tasks for legal reasoning.
 
 **Available on HuggingFace:**
+
+*Training Datasets:*
 - `kylebrussell/cap-rlvr-holding`: 20K train, 2.5K val/test  
 - `kylebrussell/cap-rlvr-bluebook`: 253K train, 32K val/test
 - `kylebrussell/cap-rlvr-summarise`: 4.4M train, 555K val/test
 - `kylebrussell/cap-rlvr-sft`: 9.9M train, 1.2M val/test (multi-task dataset)
 - `kylebrussell/cap-rlvr-retrieval`: Includes FAISS embeddings for case retrieval
+
+*GRPO-Trained Models (Progressive Sequence):*
+- `kylebrussell/cap-rlvr-grpo-bluebook`: Citation formatting specialist (2,988 training pairs)
+- `kylebrussell/cap-rlvr-grpo-holding`: Holding selection expert (3,000 training pairs, builds on bluebook)
+- `kylebrussell/cap-rlvr-grpo-summarise`: IRAC summarization expert (755 training pairs, builds on holding)
+- `kylebrussell/cap-rlvr-grpo-entail`: Case relationship classifier (840 training pairs, builds on summarise)
 
 See `docs/cap_rlvr_grpo_plan.md` for the complete implementation plan and training details.
 

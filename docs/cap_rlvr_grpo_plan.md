@@ -700,25 +700,43 @@ GRPO training follows a **multi-iteration curriculum** rather than single-pass t
 
 #### Stage-Based Training Pipeline
 
-**Stage 0: Individual Task Mastery (Sequential)**
-- Train each legal task separately until proficiency threshold
+**Stage 0: Individual Task Mastery (Progressive Sequential)**
+- Train each legal task separately using **progressive training strategy**
+- Each task builds on knowledge from the previous GRPO-trained model
 - Target: ≥80% reward score per task type
-- Duration: ~2-3 training runs per task (5-15 epochs total)
-- Purpose: Establish baseline competency in each legal reasoning domain
+- Duration: ~2-3 training runs per task (3-5 epochs per task)
+- Purpose: Establish cumulative competency across legal reasoning domains
+
+**Progressive Training Sequence:**
+1. **SFT → Bluebook GRPO**: Master citation formatting fundamentals
+2. **Bluebook GRPO → Holding GRPO**: Build legal reasoning on citation foundation  
+3. **Holding GRPO → Summarise GRPO**: Add structured case analysis skills
+4. **Summarise GRPO → Entail GRPO**: Complete with relationship classification mastery
 
 ```bash
-# Stage 0: Individual task training iterations
+# Stage 0: Progressive individual task training
+# Step 1: Start with SFT model for foundational task
 python scripts/train_grpo.py --task bluebook --model_path models/sft \
-  --data_path data_grpo/bluebook/train_grpo.json --num_epochs 5
+  --data_path data_grpo/bluebook/train_grpo.json --num_epochs 3
 
-python scripts/train_grpo.py --task holding --model_path models/grpo/bluebook_grpo \
-  --data_path data_grpo/holding/train_grpo.json --num_epochs 5
+# Step 2: Build on bluebook knowledge for holding task
+python scripts/train_grpo.py --task holding --model_path models/grpo_bluebook \
+  --data_path data_grpo/holding/train_grpo.json --num_epochs 3
 
-python scripts/train_grpo.py --task summarise --model_path models/grpo/holding_grpo \
+# Step 3: Add summarization skills on holding foundation
+python scripts/train_grpo.py --task summarise --model_path models/grpo_holding \
   --data_path data_grpo/summarise/train_grpo.json --num_epochs 3
 
-# Continue for retrieval and entail tasks...
+# Step 4: Complete sequence with entailment classification
+python scripts/train_grpo.py --task entail --model_path models/grpo_summarise \
+  --data_path data_grpo/entail/train_grpo.json --num_epochs 3
 ```
+
+**Current Progress (Available on HuggingFace):**
+- ✅ `kylebrussell/cap-rlvr-grpo-bluebook`: Citation formatting specialist (2,988 training pairs)
+- ✅ `kylebrussell/cap-rlvr-grpo-holding`: Holding selection expert (3,000 training pairs, builds on bluebook)
+- ✅ `kylebrussell/cap-rlvr-grpo-summarise`: IRAC summarization expert (755 training pairs, builds on holding)
+- 🔄 `kylebrussell/cap-rlvr-grpo-entail`: Case relationship classifier (in progress, builds on summarise)
 
 **Stage 1: Multi-Task Integration (Iterative)**
 - Combine high-performing task adapters for joint training
